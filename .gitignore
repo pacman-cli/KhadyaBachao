@@ -1,0 +1,33 @@
+# Root
+.DS_Store
+*.log
+.env
+.env.local
+
+# Backend
+backend/target/
+backend/uploads/
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+
+# Mobile / React Native
+mobile/node_modules/
+mobile/.expo/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/.bundle/
+mobile/vendor/bundle/
+mobile/npm-debug.log
+mobile/yarn-error.log
+mobile/android/keystore.properties
+mobile/android/keystore/*.keystore
+*.keystore
+!debug.keystore
+
+# IDEs
+.idea/
+.vscode/
+*.iml

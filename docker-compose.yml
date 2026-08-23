@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: khadyabachao-postgres
+    environment:
+      POSTGRES_DB: khadyabachao
+      POSTGRES_USER: khadya
+      POSTGRES_PASSWORD: khadya
+    ports:
+      # host 5433 to avoid clashing with other local Postgres on 5432
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U khadya -d khadyabachao"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: khadyabachao-backend
+    profiles: ["full"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: khadyabachao
+      DB_USER: khadya
+      DB_PASSWORD: khadya
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-khadya-bachao-jwt-secret-key-min-32-chars}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
