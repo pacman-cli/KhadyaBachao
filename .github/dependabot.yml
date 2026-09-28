@@ -1,0 +1,20 @@
+# Audit B61: automated dependency updates (previously absent entirely).
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule:
+      interval: weekly
+    groups:
+      react-native:
+        patterns:
+          - "react-native*"
+          - "@react-native*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

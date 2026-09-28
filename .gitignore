@@ -31,3 +31,21 @@ mobile/android/keystore/*.keystore
 .idea/
 .vscode/
 *.iml
+
+# Local AI-tool state (never ship personal tool dirs)
+.freebuff/
+.opencode/
+.zcodeignore
+.agents/
+.claude/
+
+# Secrets — never commit credentials (Firebase Admin SDK keys etc.)
+api key/
+**/*service-account*.json
+
+# Firebase tooling artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+firebase-export/
+.rules-harness/

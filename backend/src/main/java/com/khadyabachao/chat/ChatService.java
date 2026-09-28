@@ -1,5 +1,6 @@
 package com.khadyabachao.chat;
 
+import com.khadyabachao.notification.NotificationDispatchService;
 import com.khadyabachao.notification.NotificationService;
 import com.khadyabachao.request.FoodRequest;
 import com.khadyabachao.request.RequestAccessGuard;
@@ -37,7 +38,7 @@ public class ChatService {
                 m.getSender().getId(),
                 m.getSender().getName(),
                 m.getMessage(),
-                m.getSentAt());
+                m.getSentAt() != null ? m.getSentAt() : java.time.Instant.now());
         }
     }
 
@@ -48,11 +49,17 @@ public class ChatService {
     private final RequestAccessGuard accessGuard;
     private final SimpMessagingTemplate messagingTemplate;
     private final NotificationService notificationService;
+    private final NotificationDispatchService notificationDispatchService;
 
     @Transactional
     public MessageResponse sendMessage(UUID requestId, UUID senderId, String text) {
         if (text == null || text.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message cannot be empty");
+        }
+        // Audit D1: bound message size (DB column is TEXT; unbounded input is a
+        // resource-abuse vector on both REST and WS paths).
+        if (text.length() > 4000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message too long (max 4000 characters)");
         }
         FoodRequest request = accessGuard.getForParticipant(requestId, senderId);
 
@@ -97,6 +104,12 @@ public class ChatService {
     @Transactional
     public ScheduleResponse propose(UUID requestId, UUID userId, ProposeScheduleRequest input) {
         FoodRequest request = accessGuard.getForParticipant(requestId, userId);
+        // Scheduling only makes sense while a claim is active — a cancelled
+        // request or cancelled/completed listing must not accept new terms.
+        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Pickup can only be scheduled for an accepted claim");
+        }
         if (input.agreedTime() == null || !input.agreedTime().isAfter(Instant.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pickup time must be in the future");
         }
@@ -111,6 +124,11 @@ public class ChatService {
 
         schedule.setAgreedTime(input.agreedTime());
         schedule.setAgreedLocation(input.agreedLocation().strip());
+        // New terms invalidate both prior confirmations — otherwise a stale
+        // "confirmed" from the other party would instantly CONFIRM a time they
+        // never agreed to. The proposer's own flag is then set below.
+        schedule.setConfirmedByDonor(false);
+        schedule.setConfirmedByRecipient(false);
         if (donor) {
             schedule.setConfirmedByDonor(true);
         } else {
@@ -127,8 +145,17 @@ public class ChatService {
     @Transactional
     public ScheduleResponse confirm(UUID requestId, UUID userId) {
         FoodRequest request = accessGuard.getForParticipant(requestId, userId);
+        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Pickup can only be scheduled for an accepted claim");
+        }
         PickupSchedule schedule = scheduleRepository.findByRequestId(requestId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No schedule proposed yet"));
+        // Re-confirming an already-CONFIRMED schedule re-fires the SMS every
+        // time — reject instead.
+        if (schedule.getStatus() == ScheduleStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Pickup is already confirmed");
+        }
 
         boolean donor = request.getListing().getDonor().getId().equals(userId);
         if (donor) {
@@ -139,6 +166,15 @@ public class ChatService {
         resolveConfirmation(schedule);
 
         schedule = scheduleRepository.save(schedule);
+        if (schedule.getStatus() == ScheduleStatus.CONFIRMED) {
+            var recipient = request.getRecipient();
+            notificationDispatchService.dispatchScheduleConfirmationSms(
+                recipient.getPhone(),
+                recipient.getName(),
+                schedule.getAgreedTime() != null ? schedule.getAgreedTime().toString() : null,
+                schedule.getAgreedLocation()
+            );
+        }
         notifyCounterpart(request, userId, "Pickup confirmed",
             "Pickup for \"" + request.getListing().getTitle() + "\" is now "
                 + schedule.getStatus().name().toLowerCase() + ".");

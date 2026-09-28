@@ -14,6 +14,7 @@ import {MyClaimsScreen} from '../screens/receiver/MyClaimsScreen';
 import {ChatScreen} from '../screens/chat/ChatScreen';
 import {DashboardScreen} from '../screens/DashboardScreen';
 import {AdminScreen} from '../screens/admin/AdminScreen';
+import {NotificationsScreen} from '../screens/notifications/NotificationsScreen';
 import {useAuthStore} from '../store/authStore';
 
 export type RootStackParamList = {
@@ -29,6 +30,7 @@ export type RootStackParamList = {
   Chat: {requestId: string; title?: string};
   Dashboard: undefined;
   Admin: undefined;
+  Notifications: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -42,8 +44,15 @@ function BootSplash() {
 }
 
 export function RootNavigator() {
-  const {initializing, token, awaitingRoleSelection, bootstrap} =
-    useAuthStore();
+  // Select only the fields the routing decision needs — subscribing to the
+  // whole store re-renders the entire navigator tree on every store mutation
+  // (e.g. while the user types in a login form).
+  const initializing = useAuthStore(state => state.initializing);
+  const token = useAuthStore(state => state.token);
+  const awaitingRoleSelection = useAuthStore(
+    state => state.awaitingRoleSelection,
+  );
+  const bootstrap = useAuthStore(state => state.bootstrap);
 
   useEffect(() => {
     bootstrap();
@@ -62,6 +71,10 @@ export function RootNavigator() {
     content = (
       <>
         <Stack.Screen name="Home" component={HomeScreen} />
+        {/* Registered here too: Profile's "Change Role" replaces onto
+            RoleSelect, which previously threw "action REPLACE not handled"
+            because it only existed in the awaitingRoleSelection branch. */}
+        <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="PostFood" component={PostFoodScreen} />
         <Stack.Screen name="MyListings" component={MyListingsScreen} />
@@ -71,13 +84,19 @@ export function RootNavigator() {
         <Stack.Screen name="Chat" component={ChatScreen} />
         <Stack.Screen name="Dashboard" component={DashboardScreen} />
         <Stack.Screen name="Admin" component={AdminScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
       </>
     );
   }
 
   return (
     <NavigationContainer>
-      <Stack.Navigator>{content}</Stack.Navigator>
+      {/* Every screen renders its own branded header inside a SafeAreaView;
+          the default native header would duplicate it and leave a dead gap
+          between the two bars. */}
+      <Stack.Navigator screenOptions={{headerShown: false}}>
+        {content}
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

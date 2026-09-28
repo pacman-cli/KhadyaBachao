@@ -1,6 +1,5 @@
 import React, {useCallback, useState} from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -11,6 +10,8 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from '@react-navigation/native';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import type {RootStackParamList} from '../../navigation/RootNavigator';
 import {
   approveVerification,
   dismissReport,
@@ -24,15 +25,24 @@ import {
 } from '../../api/admin';
 import type {Verification} from '../../api/verification';
 import {absoluteUrl} from '../../api/listings';
+import {colors} from '../../theme/colors';
+import {spacing} from '../../theme/spacing';
+import {radius} from '../../theme/radius';
+import {AppHeader} from '../../components/AppHeader';
+import {AppButton} from '../../components/AppButton';
+import {LoadingState} from '../../components/LoadingState';
+import {EmptyState} from '../../components/EmptyState';
 
 type Tab = 'reports' | 'verifications';
+type Props = NativeStackScreenProps<RootStackParamList, 'Admin'>;
 
-export function AdminScreen() {
+export function AdminScreen({navigation}: Props) {
   const [tab, setTab] = useState<Tab>('reports');
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [verifications, setVerifications] = useState<Verification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,6 +55,10 @@ export function AdminScreen() {
       setReports(r);
       setVerifications(v);
       setMetrics(m);
+      setLoadError(null);
+    } catch (e: any) {
+      // Without this a transient failure rendered an empty "all clean" queue.
+      setLoadError(e?.response?.data?.detail ?? 'Could not load the admin queue');
     } finally {
       setLoading(false);
     }
@@ -57,65 +71,121 @@ export function AdminScreen() {
   );
 
   function confirmAction(title: string, action: () => Promise<void>) {
-    Alert.alert(title, 'Are you sure?', [
+    Alert.alert(title, 'Are you sure you want to perform this admin action?', [
       {text: 'Cancel', style: 'cancel'},
-      {text: 'Yes', style: 'destructive', onPress: () => action().then(load)},
+      {
+        text: 'Yes, Confirm',
+        style: 'destructive',
+        onPress: () =>
+          action()
+            .then(load)
+            .catch((e: any) =>
+              Alert.alert(
+                'Error',
+                e?.response?.data?.detail ?? 'The admin action failed',
+              ),
+            ),
+      },
     ]);
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.heading}>Admin console</Text>
+      <AppHeader
+        title="Admin Console"
+        subtitle="Platform moderation & verifications queue"
+        showBack
+        onBack={() => navigation.goBack()}
+      />
+
+      {loadError && (
+        <Text style={styles.loadError}>
+          ⚠️ {loadError} — pull down or reopen to retry.
+        </Text>
+      )}
 
       {metrics && (
         <View style={styles.metricsRow}>
-          <Metric label="Open reports" value={metrics.openReports} />
-          <Metric label="Pending verif." value={metrics.pendingVerifications} />
+          <Metric label="Open Reports" value={metrics.openReports} icon="⚠️" />
+          <Metric label="Pending Verif." value={metrics.pendingVerifications} icon="⏳" />
           <Metric
-            label="Users"
+            label="Total Users"
             value={metrics.usersByRole.reduce((s, [, n]) => s + n, 0)}
+            icon="👥"
           />
           <Metric
             label="Listings"
             value={metrics.listingsByStatus.reduce((s, [, n]) => s + n, 0)}
+            icon="📦"
           />
         </View>
       )}
 
-      <View style={styles.tabs}>
-        <TabButton label={`Reports (${reports.length})`} active={tab === 'reports'} onPress={() => setTab('reports')} />
-        <TabButton label={`Verifications (${verifications.length})`} active={tab === 'verifications'} onPress={() => setTab('verifications')} />
+      {/* Segment Tab Controls */}
+      <View style={styles.tabsRow}>
+        <Pressable
+          style={[styles.tabBtn, tab === 'reports' && styles.tabActive]}
+          onPress={() => setTab('reports')}>
+          <Text style={[styles.tabText, tab === 'reports' && styles.tabTextActive]}>
+            Open Reports ({reports.length})
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, tab === 'verifications' && styles.tabActive]}
+          onPress={() => setTab('verifications')}>
+          <Text
+            style={[
+              styles.tabText,
+              tab === 'verifications' && styles.tabTextActive,
+            ]}>
+            Pending Verifications ({verifications.length})
+          </Text>
+        </Pressable>
       </View>
 
       {loading ? (
-        <ActivityIndicator style={styles.spinner} size="large" color="#0b7a3e" />
+        <LoadingState message="Loading moderation data..." />
       ) : tab === 'reports' ? (
         <FlatList
           data={reports}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>No open reports.</Text>}
+          ListEmptyComponent={
+            <EmptyState
+              title="All Clean!"
+              message="There are no pending user reports in the queue."
+            />
+          }
           renderItem={({item}) => (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>
-                {item.targetType === 'LISTING' ? 'Listing' : 'User'} reported by{' '}
-                {item.reporterName}
-              </Text>
-              <Text style={styles.reason}>"{item.reason}"</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.targetBadge}>
+                  {item.targetType === 'LISTING' ? '📦 Listing Report' : '👤 User Report'}
+                </Text>
+                <Text style={styles.reporterText}>by {item.reporterName}</Text>
+              </View>
+
+              <Text style={styles.reasonText}>"{item.reason}"</Text>
+
               <View style={styles.actionsRow}>
-                <ActionButton
-                  label="Take down & resolve"
-                  danger
+                <AppButton
+                  title="Take Down & Resolve"
+                  variant="danger"
+                  size="sm"
+                  style={{flex: 1}}
                   onPress={() =>
-                    confirmAction('Resolve report (takes listing down)', () =>
+                    confirmAction('Resolve Report & Take Down', () =>
                       resolveReport(item.id),
                     )
                   }
                 />
-                <ActionButton
-                  label="Dismiss"
+                <AppButton
+                  title="Dismiss"
+                  variant="outline"
+                  size="sm"
+                  style={{flex: 1}}
                   onPress={() =>
-                    confirmAction('Dismiss report', () => dismissReport(item.id))
+                    confirmAction('Dismiss Report', () => dismissReport(item.id))
                   }
                 />
               </View>
@@ -128,15 +198,19 @@ export function AdminScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>No pending verifications.</Text>
+            <EmptyState
+              title="No Pending Verifications"
+              message="All organization verification applications have been reviewed."
+            />
           }
           renderItem={({item}) => (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>{item.orgName}</Text>
-              <Text style={styles.reason}>
-                {item.userName}
+              <Text style={styles.orgTitle}>{item.orgName}</Text>
+              <Text style={styles.orgMeta}>
+                Applicant: {item.userName}
                 {item.orgType ? ` · ${item.orgType}` : ''}
               </Text>
+
               {item.registrationDocUrl ? (
                 <Image
                   source={{uri: absoluteUrl(item.registrationDocUrl)}}
@@ -144,21 +218,26 @@ export function AdminScreen() {
                   resizeMode="cover"
                 />
               ) : null}
+
               <View style={styles.actionsRow}>
-                <ActionButton
-                  label="Approve"
-                  success
+                <AppButton
+                  title="✓ Approve Verification"
+                  variant="primary"
+                  size="sm"
+                  style={{flex: 1}}
                   onPress={() =>
-                    confirmAction('Approve organization?', () =>
+                    confirmAction('Approve Organization Verification?', () =>
                       approveVerification(item.id),
                     )
                   }
                 />
-                <ActionButton
-                  label="Reject"
-                  danger
+                <AppButton
+                  title="Reject"
+                  variant="danger"
+                  size="sm"
+                  style={{flex: 0.8}}
                   onPress={() =>
-                    confirmAction('Reject verification?', () =>
+                    confirmAction('Reject Verification Application?', () =>
                       rejectVerification(item.id),
                     )
                   }
@@ -172,167 +251,139 @@ export function AdminScreen() {
   );
 }
 
-function Metric({label, value}: {label: string; value: string | number}) {
+function Metric({label, value, icon}: {label: string; value: string | number; icon: string}) {
   return (
-    <View style={styles.metric}>
+    <View style={styles.metricCard}>
+      <Text style={styles.metricIcon}>{icon}</Text>
       <Text style={styles.metricValue}>{String(value)}</Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
   );
 }
 
-function TabButton({label, active, onPress}: {label: string; active: boolean; onPress: () => void}) {
-  return (
-    <Pressable
-      style={[styles.tabButton, active && styles.tabActive]}
-      onPress={onPress}>
-      <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function ActionButton({label, onPress, danger, success}: {
-  label: string;
-  onPress: () => void;
-  danger?: boolean;
-  success?: boolean;
-}) {
-  return (
-    <Pressable
-      style={[
-        styles.actionBtn,
-        danger && styles.actionDanger,
-        success && styles.actionSuccess,
-      ]}
-      onPress={onPress}>
-      <Text style={[styles.actionBtnText, (danger || success) && styles.actionBtnTextColored]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
-  heading: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    paddingHorizontal: 20,
-    paddingTop: 12,
+  loadError: {
+    color: colors.error,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   metricsRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 8,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    gap: spacing.xs,
   },
-  metric: {
+  metricCard: {
     flex: 1,
-    backgroundColor: '#f2faf5',
-    borderRadius: 12,
-    paddingVertical: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: 4,
     alignItems: 'center',
   },
+  metricIcon: {
+    fontSize: 14,
+    marginBottom: 2,
+  },
   metricValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#0b7a3e',
+    color: colors.primaryDark,
   },
   metricLabel: {
     fontSize: 10,
-    color: '#666',
-    marginTop: 2,
+    color: colors.textMuted,
     textAlign: 'center',
+    fontWeight: '600',
   },
-  tabs: {
+  tabsRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
   },
-  tabButton: {
+  tabBtn: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingVertical: 9,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
+    backgroundColor: colors.surfaceAlt,
   },
   tabActive: {
-    backgroundColor: '#0b7a3e',
-    borderColor: '#0b7a3e',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: '#444',
+    color: colors.textSecondary,
   },
   tabTextActive: {
-    color: '#fff',
+    color: '#FFFFFF',
   },
   list: {
-    padding: 20,
-    paddingTop: 4,
-    gap: 12,
-  },
-  spinner: {
-    marginTop: 30,
-  },
-  empty: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 40,
+    padding: spacing.xl,
+    gap: spacing.md,
   },
   card: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 14,
-    padding: 14,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1a1a1a',
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  reason: {
-    marginTop: 4,
+  targetBadge: {
     fontSize: 13,
-    color: '#666',
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  reporterText: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  reasonText: {
+    fontSize: 14,
+    color: colors.text,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  orgTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  orgMeta: {
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   docImage: {
     width: '100%',
-    height: 140,
-    borderRadius: 10,
-    marginTop: 10,
-    backgroundColor: '#eee',
+    height: 160,
+    borderRadius: radius.lg,
+    marginTop: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  actionBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 9,
-    paddingVertical: 9,
-    alignItems: 'center',
-  },
-  actionDanger: {
-    borderColor: '#c0392b',
-  },
-  actionSuccess: {
-    borderColor: '#0b7a3e',
-  },
-  actionBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#444',
-  },
-  actionBtnTextColored: {},
 });

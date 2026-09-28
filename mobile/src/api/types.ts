@@ -7,7 +7,9 @@ export type UserRole =
 
 export type User = {
   id: string;
-  firebaseUid: string | null;
+  // NOTE: the backend's UserResponse deliberately never serializes
+  // firebaseUid (audit B52) or an updatedAt field — do not add them here
+  // unless the backend actually emits them.
   name: string;
   email: string | null;
   phone: string | null;
@@ -15,8 +17,9 @@ export type User = {
   profilePhotoUrl: string | null;
   verified: boolean;
   ratingAvg: number;
+  donorRatingAvg?: number;
+  recipientRatingAvg?: number;
   createdAt: string;
-  updatedAt: string;
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {

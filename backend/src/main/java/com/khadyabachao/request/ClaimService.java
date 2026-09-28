@@ -39,8 +39,13 @@ public class ClaimService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Your role cannot claim food");
         }
 
-        var listing = listingRepository.findById(listingId)
+        var listing = listingRepository.findWithLockById(listingId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Listing not found"));
+        // Role is user-changeable at any time, so a donor could switch to a
+        // recipient role and claim their own donation to farm impact stats.
+        if (listing.getDonor().getId().equals(recipientId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot claim your own listing");
+        }
         if (listing.getStatus() != ListingStatus.AVAILABLE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Listing is no longer available");
         }
@@ -55,6 +60,11 @@ public class ClaimService {
         if (listingRepository.claimAtomically(listingId) == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Someone beat you to it — listing already claimed");
         }
+
+        // The bulk update bypasses the persistence context, so the managed
+        // entity still reads AVAILABLE. Align it so the response, events and
+        // notifications carry CLAIMED instead of a stale snapshot.
+        listing.setStatus(ListingStatus.CLAIMED);
 
         FoodRequest request = requestRepository.save(FoodRequest.builder()
             .listing(listing)
@@ -85,9 +95,17 @@ public class ClaimService {
 
         var listing = request.getListing();
         if (listing.getStatus() == ListingStatus.CLAIMED) {
-            listing.setStatus(ListingStatus.AVAILABLE);
+            // A released listing whose pickup window already passed can never be
+            // claimed again (claim() rejects past deadlines) — it would sit as an
+            // undead AVAILABLE row. Expire it instead.
+            if (listing.getPickupDeadline().isAfter(Instant.now())) {
+                listing.setStatus(ListingStatus.AVAILABLE);
+                eventPublisher.listingChanged(listing.getId(), "RELEASED", ListingStatus.AVAILABLE);
+            } else {
+                listing.setStatus(ListingStatus.EXPIRED);
+                eventPublisher.listingChanged(listing.getId(), "EXPIRED", ListingStatus.EXPIRED);
+            }
             listingRepository.save(listing);
-            eventPublisher.listingChanged(listing.getId(), "RELEASED", ListingStatus.AVAILABLE);
         }
         return RequestResponse.from(request);
     }
@@ -103,8 +121,14 @@ public class ClaimService {
         if (request.getStatus() != RequestStatus.ACCEPTED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only accepted requests can be completed");
         }
-        request.setStatus(RequestStatus.ACCEPTED); // stays accepted; completion lives on the listing
+        // Completion means food actually changed hands: a donor can cancel a
+        // claimed listing while the request is still ACCEPTED, and completing
+        // that would fabricate impact stats, receipts and rating rights.
         var listing = request.getListing();
+        if (listing.getStatus() != ListingStatus.CLAIMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Listing is not awaiting handover");
+        }
+        request.setStatus(RequestStatus.ACCEPTED); // stays accepted; completion lives on the listing
         listing.setStatus(ListingStatus.COMPLETED);
         listing.setCompletedAt(java.time.Instant.now());
         listingRepository.save(listing);
@@ -119,10 +143,80 @@ public class ClaimService {
         return RequestResponse.from(request);
     }
 
+    @Transactional
+    public RequestResponse approveClaim(UUID donorId, UUID requestId) {
+        FoodRequest request = requestRepository.findById(requestId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Request not found"));
+        if (!request.getListing().getDonor().getId().equals(donorId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your listing");
+        }
+        // Audit B28: enforce the claim state machine — only a PENDING request can
+        // be approved, and the listing must still be claimable.
+        if (request.getStatus() != RequestStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending requests can be approved");
+        }
+        var listing = request.getListing();
+        if (listing.getStatus() != ListingStatus.AVAILABLE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Listing is no longer available");
+        }
+        request.setStatus(RequestStatus.ACCEPTED);
+        request.setRespondedAt(Instant.now());
+        requestRepository.save(request);
+
+        listing.setStatus(ListingStatus.CLAIMED);
+        listingRepository.save(listing);
+
+        eventPublisher.listingChanged(listing.getId(), "APPROVED", ListingStatus.CLAIMED);
+        notificationService.sendToUsers(
+            List.of(request.getRecipient().getId()),
+            "Claim Approved!",
+            "Your claim for \"" + listing.getTitle() + "\" was approved by donor.",
+            Map.of("type", "CLAIM_APPROVED", "listingId", listing.getId().toString()));
+
+        return RequestResponse.from(request);
+    }
+
+    @Transactional
+    public RequestResponse rejectClaim(UUID donorId, UUID requestId) {
+        FoodRequest request = requestRepository.findById(requestId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Request not found"));
+        if (!request.getListing().getDonor().getId().equals(donorId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your listing");
+        }
+        // Mirror the approveClaim guard: only PENDING requests can be rejected.
+        // Without this, rejecting a COMPLETED/CANCELLED request resurrects the
+        // listing as AVAILABLE (or re-opens already-consumed food).
+        if (request.getStatus() != RequestStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending requests can be rejected");
+        }
+        request.setStatus(RequestStatus.REJECTED);
+        request.setRespondedAt(Instant.now());
+        requestRepository.save(request);
+
+        var listing = request.getListing();
+        if (listing.getStatus() == ListingStatus.CLAIMED) {
+            listing.setStatus(ListingStatus.AVAILABLE);
+            listingRepository.save(listing);
+            eventPublisher.listingChanged(listing.getId(), "REJECTED", ListingStatus.AVAILABLE);
+        }
+        notificationService.sendToUsers(
+            List.of(request.getRecipient().getId()),
+            "Claim Update",
+            "Your claim for \"" + listing.getTitle() + "\" was not accepted.",
+            Map.of("type", "CLAIM_REJECTED", "listingId", listing.getId().toString()));
+
+        return RequestResponse.from(request);
+    }
+
     @Transactional(readOnly = true)
     public List<RequestResponse> myRequests(UUID recipientId) {
-        return requestRepository.findByRecipientIdOrderByRequestedAtDesc(recipientId).stream()
-            .map(r -> RequestResponse.from(r, ratingRepository.existsByRequestId(r.getId())))
+        var requests = requestRepository.findByRecipientIdOrderByRequestedAtDesc(recipientId);
+        // One batched query for "which of these did I already rate" instead of
+        // an exists() per row.
+        var ratedIds = new java.util.HashSet<>(requestRepository.findRatedRequestIds(
+            requests.stream().map(FoodRequest::getId).toList(), recipientId));
+        return requests.stream()
+            .map(r -> RequestResponse.from(r, ratedIds.contains(r.getId())))
             .toList();
     }
 

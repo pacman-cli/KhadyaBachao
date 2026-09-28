@@ -13,6 +13,8 @@ public interface DeviceTokenRepository extends JpaRepository<DeviceToken, UUID> 
 
     List<DeviceToken> findByUserId(UUID userId);
 
-    @Query("SELECT t.token FROM DeviceToken t WHERE t.user.id IN :userIds")
+    // Deactivated accounts must not receive pushes (admin suspension must
+    // silence their device immediately).
+    @Query("SELECT t.token FROM DeviceToken t WHERE t.user.id IN :userIds AND t.user.active = true")
     List<String> findTokensByUserIds(List<UUID> userIds);
 }

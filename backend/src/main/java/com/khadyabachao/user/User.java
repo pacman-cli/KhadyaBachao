@@ -54,6 +54,14 @@ public class User {
     @Builder.Default
     private BigDecimal ratingAvg = BigDecimal.ZERO;
 
+    @Column(name = "donor_rating_avg", nullable = false, precision = 3, scale = 2)
+    @Builder.Default
+    private BigDecimal donorRatingAvg = BigDecimal.ZERO;
+
+    @Column(name = "recipient_rating_avg", nullable = false, precision = 3, scale = 2)
+    @Builder.Default
+    private BigDecimal recipientRatingAvg = BigDecimal.ZERO;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

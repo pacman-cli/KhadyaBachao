@@ -1,94 +1,131 @@
-import React, {useEffect, useState} from 'react';
-import {ScrollView, StyleSheet, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useState} from 'react';
+import {RefreshControl, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import type {RootStackParamList} from '../navigation/RootNavigator';
 import {
   fetchMyStats,
   fetchSystemStats,
   type MyStats,
   type SystemStats,
 } from '../api/stats';
+import {colors} from '../theme/colors';
+import {spacing} from '../theme/spacing';
+import {radius} from '../theme/radius';
+import {AppHeader} from '../components/AppHeader';
+import {ErrorState} from '../components/ErrorState';
 
-export function DashboardScreen() {
+type Props = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
+
+export function DashboardScreen({navigation}: Props) {
   const [mine, setMine] = useState<MyStats | null>(null);
   const [system, setSystem] = useState<SystemStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setFailed(false);
+    // A dashboard with no loading/error states rendered a permanent blank
+    // screen on failure (live finding) — both are now explicit.
+    Promise.all([fetchMyStats(), fetchSystemStats()])
+      .then(([m, s]) => {
+        setMine(m);
+        setSystem(s);
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
-    fetchMyStats().then(setMine).catch(() => {});
-    fetchSystemStats().then(setSystem).catch(() => {});
-  }, []);
+    load();
+  }, [load]);
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>Impact</Text>
+      <AppHeader
+        title="Impact & Analytics"
+        subtitle="Track food rescued and environmental contribution"
+        showBack
+        onBack={() => navigation.goBack()}
+      />
 
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={load} />
+        }>
+        {failed && !loading && (
+          <ErrorState
+            message="Could not load impact stats."
+            onRetry={load}
+          />
+        )}
         {mine && (
-          <>
-            <Text style={styles.sectionTitle}>Your impact</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🌱 Your Personal Impact</Text>
             <View style={styles.grid}>
               {mine.role === 'DONOR' ? (
                 <>
-                  <Stat label="Listings posted" value={mine.listingsPosted} />
-                  <Stat label="Pickups completed" value={mine.pickupsCompleted} />
-                  <Stat
-                    label="Food rescued"
-                    value={fmt(mine.quantityRescued)}
-                  />
+                  <Stat label="Listings Posted" value={mine.listingsPosted} icon="📦" />
+                  <Stat label="Pickups Completed" value={mine.pickupsCompleted} icon="✓" />
+                  <Stat label="Food Rescued" value={fmt(mine.quantityRescued)} icon="🍲" />
                 </>
               ) : (
                 <>
-                  <Stat label="Claims made" value={mine.claimsMade} />
-                  <Stat label="Pickups received" value={mine.pickupsCompleted} />
-                  <Stat
-                    label="Food received"
-                    value={fmt(mine.quantityRescued)}
-                  />
+                  <Stat label="Claims Made" value={mine.claimsMade} icon="📋" />
+                  <Stat label="Pickups Received" value={mine.pickupsCompleted} icon="✓" />
+                  <Stat label="Food Received" value={fmt(mine.quantityRescued)} icon="🍲" />
                 </>
               )}
             </View>
-          </>
+          </View>
         )}
 
         {system && (
-          <>
-            <Text style={styles.sectionTitle}>Community impact</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🌍 Community Impact</Text>
             <View style={styles.grid}>
-              <Stat label="Total listings" value={system.totalListings} />
-              <Stat label="Completed pickups" value={system.completedPickups} />
-              <Stat label="Total rescued" value={fmt(system.totalRescued)} />
+              <Stat label="Total Listings" value={system.totalListings} icon="📦" />
+              <Stat label="Completed Pickups" value={system.completedPickups} icon="🤝" />
+              <Stat label="Total Rescued" value={fmt(system.totalRescued)} icon="✨" />
             </View>
 
             {system.daily.length > 0 && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Rescued — last {Math.min(system.daily.length, 14)} days</Text>
+                <Text style={styles.cardTitle}>
+                  Daily Rescue Activity (Last {Math.min(system.daily.length, 14)} Days)
+                </Text>
                 <BarChart data={[...system.daily].reverse()} />
               </View>
             )}
 
             {system.leaderboard.length > 0 && (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Top rescuers</Text>
+                <Text style={styles.cardTitle}>🏆 Community Leaderboard</Text>
                 {system.leaderboard.map((entry, i) => (
                   <View key={i} style={styles.leaderRow}>
                     <Text style={styles.rank}>#{i + 1}</Text>
                     <Text style={styles.leaderName}>{entry.donorName}</Text>
                     <Text style={styles.leaderValue}>
-                      {fmt(entry.totalRescued)}
+                      {fmt(entry.totalRescued)} items
                     </Text>
                   </View>
                 ))}
               </View>
             )}
-          </>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function Stat({label, value}: {label: string; value: string | number}) {
+function Stat({label, value, icon}: {label: string; value: string | number; icon: string}) {
   return (
     <View style={styles.statCard}>
+      <Text style={styles.statIcon}>{icon}</Text>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -109,12 +146,14 @@ function BarChart({data}: {data: {date: string; rescued: number}[]}) {
             <View
               style={[
                 styles.bar,
-                {height: Math.max(3, (d.rescued / max) * 80)},
+                {height: Math.max(4, (d.rescued / max) * 80)},
               ]}
             />
           </View>
           <Text style={styles.barLabel}>
-            {new Date(d.date).getDate()}
+            {/* d.date is a date-only string ("2026-09-27"); Date parsing shifts
+                it a day in UTC-negative timezones — slice the day directly. */}
+            {Number(d.date.slice(-2))}
           </Text>
         </View>
       ))}
@@ -125,61 +164,61 @@ function BarChart({data}: {data: {date: string; rescued: number}[]}) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: spacing.xl,
+    gap: spacing.xl,
   },
-  heading: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    marginBottom: 16,
+  section: {
+    gap: spacing.md,
   },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#666',
-    marginTop: 8,
-    marginBottom: 10,
-    textTransform: 'uppercase',
+    color: colors.text,
   },
   grid: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 18,
+    gap: spacing.md,
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#f2faf5',
-    borderRadius: 14,
-    padding: 14,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: radius.lg,
+    padding: spacing.md,
     alignItems: 'center',
   },
+  statIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
   statValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#0b7a3e',
+    color: colors.primaryDark,
   },
   statLabel: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 11,
-    color: '#557',
+    color: colors.primaryDark,
     textAlign: 'center',
+    fontWeight: '600',
   },
   card: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#444',
-    marginBottom: 12,
+    color: colors.text,
+    marginBottom: spacing.md,
   },
   chartRow: {
     flexDirection: 'row',
@@ -196,34 +235,36 @@ const styles = StyleSheet.create({
     width: '70%',
   },
   bar: {
-    backgroundColor: '#0b7a3e',
+    backgroundColor: colors.primary,
     borderRadius: 4,
   },
   barLabel: {
-    fontSize: 9,
-    color: '#999',
+    fontSize: 10,
+    color: colors.textMuted,
     marginTop: 4,
   },
   leaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border,
   },
   rank: {
-    width: 34,
+    width: 32,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#f1a805',
+    color: colors.warning,
   },
   leaderName: {
     flex: 1,
-    fontSize: 15,
-    color: '#1a1a1a',
+    fontSize: 14,
+    color: colors.text,
     fontWeight: '600',
   },
   leaderValue: {
+    fontSize: 13,
     fontWeight: '700',
-    color: '#0b7a3e',
+    color: colors.primary,
   },
 });

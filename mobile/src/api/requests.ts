@@ -1,4 +1,6 @@
-import {api} from './client';
+import {api, API_BASE_URL} from './client';
+import {getToken} from './tokenRef';
+import {Linking} from 'react-native';
 
 export type RequestStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
 
@@ -50,4 +52,17 @@ export async function requestsForListing(listingId: string): Promise<FoodRequest
 /** Donor confirms the handover; listing + request become COMPLETED. */
 export async function completePickup(requestId: string): Promise<void> {
   await api.patch(`/api/requests/${requestId}/complete`);
+}
+
+/** Opens or downloads the PDF pickup receipt for completed request. */
+export async function openReceiptPdf(requestId: string): Promise<void> {
+  // The receipt opens in the system browser, which cannot attach an
+  // Authorization header — the backend accepts the JWT as a `token` query
+  // param for this path only (still participant-gated server-side).
+  const token = getToken();
+  if (!token) {
+    throw new Error('Not signed in');
+  }
+  const url = `${API_BASE_URL}/api/requests/${requestId}/receipt?token=${encodeURIComponent(token)}`;
+  await Linking.openURL(url);
 }

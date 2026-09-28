@@ -1,14 +1,19 @@
 package com.khadyabachao.request;
 
 import com.khadyabachao.config.JwtAuthFilter.AuthenticatedUser;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -18,23 +23,41 @@ public class ClaimController {
 
     private final ClaimService claimService;
     private final RatingService ratingService;
+    private final ReceiptService receiptService;
 
-    public record RatingPayload(int rating, String comment) {
+    public record RatingPayload(
+            @NotNull @Min(1) @Max(5) Integer rating,
+            String comment) {
     }
 
-    /** Recipient rates the donor after a completed pickup. */
+    /** Donor or Recipient rates the other party after a completed pickup. */
     @PostMapping("/requests/{id}/rate")
-    public ResponseEntity<?> rate(@AuthenticationPrincipal AuthenticatedUser principal,
-                                  @PathVariable UUID id,
-                                  @RequestBody RatingPayload payload) {
-        ratingService.rate(id, principal.id(), new RatingService.RateRequest(payload.rating(), payload.comment()));
-        return ResponseEntity.ok(java.util.Map.of("status", "rated"));
+    public ResponseEntity<RatingService.RatingResponse> rate(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id,
+            @Valid @RequestBody RatingPayload payload) {
+        return ResponseEntity.ok(ratingService.rate(id, principal.id(), new RatingService.RateRequest(payload.rating(), payload.comment())));
+    }
+
+    @GetMapping("/requests/{id}/ratings")
+    public ResponseEntity<List<RatingService.RatingResponse>> getRatings(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id) {
+        // Audit B30: participant-only (was readable by any authenticated user).
+        return ResponseEntity.ok(ratingService.getRatingsForRequest(id, principal.id()));
+    }
+
+    @GetMapping("/requests/{id}/ratings/mine")
+    public ResponseEntity<RatingService.RatingResponse> getMyRating(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ratingService.getMyRatingForRequest(id, principal.id()));
     }
 
     @PostMapping("/listings/{id}/claim")
     @PreAuthorize("hasAnyRole('RECIPIENT_NGO','RECIPIENT_INDIVIDUAL','VOLUNTEER')")
     public ResponseEntity<RequestResponse> claim(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                 @PathVariable UUID id) {
+            @PathVariable UUID id) {
         return ResponseEntity.status(201).body(claimService.claim(id, principal.id()));
     }
 
@@ -46,20 +69,46 @@ public class ClaimController {
     @GetMapping("/listings/{id}/requests")
     @PreAuthorize("hasRole('DONOR')")
     public ResponseEntity<List<RequestResponse>> forListing(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                            @PathVariable UUID id) {
+            @PathVariable UUID id) {
         return ResponseEntity.ok(claimService.forMyListing(principal.id(), id));
+    }
+
+    @GetMapping("/requests/{id}/receipt")
+    public ResponseEntity<byte[]> getReceipt(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id) {
+        byte[] pdfBytes = receiptService.generateReceiptPdf(id, principal.id());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("attachment", "receipt-" + id + ".pdf");
+        headers.setContentLength(pdfBytes.length);
+        return ResponseEntity.ok().headers(headers).body(pdfBytes);
+    }
+
+    @PostMapping({"/claims/{id}/approve", "/requests/{id}/approve"})
+    @PreAuthorize("hasRole('DONOR')")
+    public ResponseEntity<RequestResponse> approve(@AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(claimService.approveClaim(principal.id(), id));
+    }
+
+    @PostMapping({"/claims/{id}/reject", "/requests/{id}/reject"})
+    @PreAuthorize("hasRole('DONOR')")
+    public ResponseEntity<RequestResponse> rejectClaim(@AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(claimService.rejectClaim(principal.id(), id));
     }
 
     @PatchMapping("/requests/{id}/cancel")
     public ResponseEntity<RequestResponse> cancel(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                  @PathVariable UUID id) {
+            @PathVariable UUID id) {
         return ResponseEntity.ok(claimService.cancelMyClaim(principal.id(), id));
     }
 
     @PatchMapping("/requests/{id}/complete")
     @PreAuthorize("hasRole('DONOR')")
     public ResponseEntity<RequestResponse> complete(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                    @PathVariable UUID id) {
+            @PathVariable UUID id) {
         return ResponseEntity.ok(claimService.complete(principal.id(), id));
     }
 }

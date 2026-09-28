@@ -1,6 +1,9 @@
 package com.khadyabachao.listing;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -12,28 +15,51 @@ import java.util.UUID;
 
 public interface FoodListingRepository extends JpaRepository<FoodListing, UUID> {
 
+    // ListingResponse.from() reads donor name/role/verified per row — without
+    // the fetch this is one extra users query PER ROW on /listings/mine.
+    @EntityGraph(attributePaths = "donor")
     List<FoodListing> findByDonorIdOrderByCreatedAtDesc(UUID donorId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT f FROM FoodListing f WHERE f.id = :id")
+    java.util.Optional<FoodListing> findWithLockById(UUID id);
 
     List<FoodListing> findByStatusAndPickupDeadlineBefore(ListingStatus status, Instant deadline);
 
     /**
-     * Radius search using earthdistance. ll_to_earth point <@ earth_box(center, meters)
-     * leverages the GiST index; ordering by distance. Optional foodType / minQuantity filters.
+     * Radius search using PostGIS ST_DWithin on geography location column.
+     * leverages the GiST index (idx_food_listings_postgis_location); ordering by ST_Distance.
+     * Optional foodType / minQuantity / maxQuantity / includeExpired filters with pagination.
      */
     @Query(value = """
         SELECT * FROM food_listings f
-        WHERE f.status = 'AVAILABLE'
-          AND f.pickup_deadline > now()
-          AND ll_to_earth(f.pickup_lat, f.pickup_lng)
-                <@ earth_box(ll_to_earth(:lat, :lng), :radiusMeters)
+        WHERE (:includeExpired = true OR (f.status = 'AVAILABLE' AND f.pickup_deadline > now()))
+          AND ST_DWithin(f.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radiusMeters)
           AND (:foodType IS NULL OR f.food_type = :foodType)
           AND (:minQuantity IS NULL OR f.quantity_value >= :minQuantity)
-        ORDER BY earth_distance(ll_to_earth(f.pickup_lat, f.pickup_lng),
-                                ll_to_earth(:lat, :lng))
+          AND (:maxQuantity IS NULL OR f.quantity_value <= :maxQuantity)
+        ORDER BY ST_Distance(f.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography)
         """,
         nativeQuery = true)
     List<FoodListing> findNearby(double lat, double lng, double radiusMeters,
-                                 String foodType, Double minQuantity);
+                                 String foodType, Double minQuantity, Double maxQuantity, boolean includeExpired,
+                                 Pageable pageable);
+
+    @EntityGraph(attributePaths = "donor")
+    @Query("""
+        SELECT f FROM FoodListing f
+        WHERE (:includeExpired = true OR f.status = :status)
+          AND (:foodType IS NULL OR f.foodType = :foodType)
+          AND (:minQuantity IS NULL OR f.quantityValue >= :minQuantity)
+          AND (:maxQuantity IS NULL OR f.quantityValue <= :maxQuantity)
+        """)
+    Page<FoodListing> browseListings(
+        ListingStatus status,
+        FoodType foodType,
+        java.math.BigDecimal minQuantity,
+        java.math.BigDecimal maxQuantity,
+        boolean includeExpired,
+        Pageable pageable);
 
     Page<FoodListing> findByStatus(ListingStatus status, Pageable pageable);
 

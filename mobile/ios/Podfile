@@ -8,11 +8,8 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+$RNFirebaseDisableSPM = true
+use_frameworks! :linkage => :static
 
 target 'KhadyaBachao' do
   config = use_native_modules!
@@ -30,5 +27,25 @@ target 'KhadyaBachao' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |c|
+        c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+        c.build_settings['DEFINES_MODULE'] = 'YES'
+        c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      end
+    end
+
+    # Fix gRPC-Core modulemap missing header symlink error
+    grpc_dir = File.join(__dir__, 'Pods', 'Headers', 'Private', 'grpc')
+    FileUtils.mkdir_p(grpc_dir)
+    src_modulemap = File.join(__dir__, 'Pods', 'Target Support Files', 'gRPC-Core', 'gRPC-Core.modulemap')
+    dst_modulemap = File.join(grpc_dir, 'gRPC-Core.modulemap')
+    if File.exist?(src_modulemap)
+      FileUtils.rm_f(dst_modulemap)
+      FileUtils.cp(src_modulemap, dst_modulemap)
+      Pod::UI.puts "Successfully copied gRPC-Core.modulemap to #{dst_modulemap}".green
+    else
+      Pod::UI.puts "src_modulemap not found: #{src_modulemap}".red
+    end
   end
 end

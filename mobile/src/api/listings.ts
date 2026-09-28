@@ -81,8 +81,13 @@ export async function nearbyListings(params: {
   lat: number;
   lng: number;
   radiusKm?: number;
+  maxDistanceKm?: number;
   foodType?: FoodType;
   minQuantity?: number;
+  maxQuantity?: number;
+  includeExpired?: boolean;
+  page?: number;
+  size?: number;
 }): Promise<Listing[]> {
   const res = await api.get<Listing[]>('/api/listings/nearby', {params});
   return res.data;
@@ -93,13 +98,25 @@ export function absoluteUrl(url: string): string {
   return url.startsWith('/') ? `${API_BASE_URL}${url}` : url;
 }
 
-/** Uploads an image and returns its URL. */
-export async function uploadImage(uri: string): Promise<string> {
+/**
+ * Uploads an image and returns its URL. `mimeType` must be the ACTUAL type of
+ * the file (from the picker asset) — the server sniffs magic bytes and rejects
+ * uploads whose declared type does not match the real bytes.
+ */
+export async function uploadImage(
+  uri: string,
+  mimeType = 'image/jpeg',
+): Promise<string> {
+  const ext = mimeType.includes('png')
+    ? 'png'
+    : mimeType.includes('webp')
+      ? 'webp'
+      : 'jpg';
   const form = new FormData();
   form.append('file', {
     uri,
-    name: 'photo.jpg',
-    type: 'image/jpeg',
+    name: `photo.${ext}`,
+    type: mimeType,
   });
   const res = await api.post<{url: string}>('/api/uploads', form, {
     headers: {'Content-Type': 'multipart/form-data'},

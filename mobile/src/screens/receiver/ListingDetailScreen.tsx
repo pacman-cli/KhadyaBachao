@@ -22,25 +22,42 @@ import {ROLE_LABELS} from '../../api/types';
 import {useListingEvents} from '../../hooks/useListingEvents';
 import type {ListingEvent} from '../../api/wsClient';
 import {ReportModal} from '../../components/ReportModal';
+import {colors} from '../../theme/colors';
+import {spacing} from '../../theme/spacing';
+import {radius} from '../../theme/radius';
+import {AppHeader} from '../../components/AppHeader';
+import {AppButton} from '../../components/AppButton';
+import {Badge} from '../../components/Badge';
+import {LoadingState} from '../../components/LoadingState';
+import {ErrorState} from '../../components/ErrorState';
+import {formatDateTime} from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
-export function ListingDetailScreen({route}: Props) {
+export function ListingDetailScreen({route, navigation}: Props) {
   const {listingId} = route.params;
   const [listing, setListing] = useState<Listing | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const [reporting, setReporting] = useState(false);
+
+  const fetchDetail = useCallback(() => {
+    // Clear any previous failure first — otherwise a successful retry keeps
+    // rendering the ErrorState because the gate checks `error` before data.
+    setError(null);
+    getListing(listingId)
+      .then(setListing)
+      .catch(e =>
+        setError(e?.response?.data?.detail ?? 'Could not load listing details'),
+      );
+  }, [listingId]);
 
   useFocusEffect(
     useCallback(() => {
-      getListing(listingId)
-        .then(setListing)
-        .catch(e =>
-          setError(e?.response?.data?.detail ?? 'Could not load listing'),
-        );
-    }, [listingId]),
+      fetchDetail();
+    }, [fetchDetail]),
   );
 
-  // live updates: someone claimed/completed this listing while viewing it
   useListingEvents(
     useCallback(
       (_event: ListingEvent) => {
@@ -51,38 +68,48 @@ export function ListingDetailScreen({route}: Props) {
     listingId,
   );
 
-  const [claiming, setClaiming] = useState(false);
-  const [reporting, setReporting] = useState(false);
-
   if (error) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.error}>{error}</Text>
+        <AppHeader title="Listing Details" showBack onBack={() => navigation.goBack()} />
+        <ErrorState message={error} onRetry={fetchDetail} />
       </SafeAreaView>
     );
   }
+
   if (!listing) {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.meta}>Loading…</Text>
+        <AppHeader title="Listing Details" showBack onBack={() => navigation.goBack()} />
+        <LoadingState message="Loading listing details..." />
       </SafeAreaView>
     );
   }
 
   async function claim() {
     setClaiming(true);
+    // Optimistic UI update: mark status as CLAIMED locally while API call processes
+    setListing(prev => (prev ? {...prev, status: 'CLAIMED'} : null));
     try {
       await claimListing(listingId);
       Alert.alert(
-        'Claimed!',
-        'The donor has been notified. Find it under "My claims".',
+        'Claim Successful! 🎉',
+        'The donor has been notified. You can track this under "My Claims".',
       );
       setListing(await getListing(listingId));
     } catch (e) {
-      const detail =
-        (e as {response?: {data?: {detail?: string}}})?.response?.data?.detail ??
-        'Could not claim this listing';
-      Alert.alert('Cannot claim', detail);
+      const err = e as {response?: {status?: number; data?: {detail?: string}}};
+      const isConflict = err.response?.status === 409;
+      const detail = isConflict
+        ? 'This item was just claimed by someone else.'
+        : (err.response?.data?.detail ?? 'Could not claim this listing');
+
+      Alert.alert(isConflict ? 'Already Claimed ⚠️' : 'Cannot Claim', detail);
+      try {
+        setListing(await getListing(listingId));
+      } catch {
+        // silent catch if listing is gone
+      }
     } finally {
       setClaiming(false);
     }
@@ -90,12 +117,20 @@ export function ListingDetailScreen({route}: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {listing.photoUrls.length > 0 && (
+      <AppHeader
+        title="Listing Details"
+        subtitle={listing.title}
+        showBack
+        onBack={() => navigation.goBack()}
+      />
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Photo Gallery Carousel */}
+        {listing.photoUrls.length > 0 ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.photos}>
+            style={styles.photosScroll}>
             {listing.photoUrls.map((url, i) => (
               <Image
                 key={i}
@@ -104,71 +139,81 @@ export function ListingDetailScreen({route}: Props) {
               />
             ))}
           </ScrollView>
-        )}
+        ) : null}
 
-        <View style={styles.rowBetween}>
-          <Text style={styles.title}>{listing.title}</Text>
-          <View style={[styles.badge, styles.badgeAvailable]}>
-            <Text style={[styles.badgeText, styles.badgeTextAvailable]}>
-              {listing.status}
-            </Text>
+        {/* Main Info Card */}
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.title}>{listing.title}</Text>
+            <Badge label={listing.status} variant={listing.status} />
+          </View>
+
+          {listing.description ? (
+            <Text style={styles.description}>{listing.description}</Text>
+          ) : null}
+
+          <View style={styles.factsGrid}>
+            <Fact label="Quantity" value={`${Number(listing.quantityValue)} ${listing.quantityUnit}`} icon="📦" />
+            <Fact label="Food Type" value={listing.foodType} icon="🍲" />
+            <Fact
+              label="Pickup Deadline"
+              value={formatDateTime(listing.pickupDeadline)}
+              icon="⏰"
+            />
+            {listing.pickupAddress ? (
+              <Fact label="Address" value={listing.pickupAddress} icon="📍" />
+            ) : (
+              <Fact
+                label="Coordinates"
+                value={`${listing.pickupLat.toFixed(4)}, ${listing.pickupLng.toFixed(4)}`}
+                icon="📍"
+              />
+            )}
           </View>
         </View>
 
-        {listing.description ? (
-          <Text style={styles.description}>{listing.description}</Text>
-        ) : null}
-
-        <View style={styles.facts}>
-          <Fact label="Quantity" value={`${Number(listing.quantityValue)} ${listing.quantityUnit}`} />
-          <Fact label="Food type" value={listing.foodType.toLowerCase()} />
-          <Fact
-            label="Pickup by"
-            value={new Date(listing.pickupDeadline).toLocaleString()}
-          />
-          {listing.pickupAddress ? (
-            <Fact label="Address" value={listing.pickupAddress} />
-          ) : (
-            <Fact
-              label="Location"
-              value={`${listing.pickupLat.toFixed(4)}, ${listing.pickupLng.toFixed(4)}`}
-            />
-          )}
-        </View>
-
+        {/* Donor Profile Card */}
         <View style={styles.donorCard}>
-          <View>
+          <View style={styles.donorAvatar}>
+            <Text style={styles.donorAvatarText}>
+              {listing.donorName ? listing.donorName.charAt(0).toUpperCase() : '🏪'}
+            </Text>
+          </View>
+          <View style={styles.donorInfo}>
             <Text style={styles.donorName}>
               {listing.donorName ?? 'Donor'}
               {listing.donorVerified ? ' ✓' : ''}
             </Text>
             <Text style={styles.donorMeta}>
-              {listing.donorRole ? ROLE_LABELS[listing.donorRole] : ''}
-              {listing.donorRole ? ' · ' : ''}
-              {listing.donorVerified ? 'Verified' : 'Unverified'}
+              {listing.donorRole ? ROLE_LABELS[listing.donorRole] : 'Food Donor'}
+              {listing.donorVerified ? ' · Verified Partner' : ' · Community Donor'}
             </Text>
           </View>
         </View>
 
+        {/* Claim Action */}
         {listing.status === 'AVAILABLE' ? (
-          <Pressable
-            style={[styles.claimButton, claiming && styles.buttonDisabled]}
-            disabled={claiming}
-            onPress={claim}>
-            <Text style={styles.claimButtonText}>
-              {claiming ? 'Claiming…' : 'Claim this food'}
-            </Text>
-          </Pressable>
+          <AppButton
+            title="Claim This Surplus Food"
+            variant="primary"
+            size="lg"
+            loading={claiming}
+            onPress={claim}
+            style={styles.claimButton}
+          />
         ) : (
-          <Text style={styles.unavailableNote}>
-            This listing is no longer available for claiming.
-          </Text>
+          <View style={styles.unavailableBox}>
+            <Text style={styles.unavailableText}>
+              This food item is no longer available for claiming ({(listing.status as string).toLowerCase()}).
+            </Text>
+          </View>
         )}
 
+        {/* Report Listing Link */}
         <Pressable
           style={styles.reportLink}
           onPress={() => setReporting(true)}>
-          <Text style={styles.reportLinkText}>⚠ Report this listing</Text>
+          <Text style={styles.reportLinkText}>⚠️ Report suspicious listing</Text>
         </Pressable>
 
         {reporting && (
@@ -179,11 +224,14 @@ export function ListingDetailScreen({route}: Props) {
   );
 }
 
-function Fact({label, value}: {label: string; value: string}) {
+function Fact({label, value, icon}: {label: string; value: string; icon: string}) {
   return (
-    <View style={styles.fact}>
-      <Text style={styles.factLabel}>{label}</Text>
-      <Text style={styles.factValue}>{value}</Text>
+    <View style={styles.factItem}>
+      <Text style={styles.factIcon}>{icon}</Text>
+      <View style={styles.factTextGroup}>
+        <Text style={styles.factLabel}>{label}</Text>
+        <Text style={styles.factValue}>{value}</Text>
+      </View>
     </View>
   );
 }
@@ -191,130 +239,146 @@ function Fact({label, value}: {label: string; value: string}) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: spacing.xl,
+    gap: spacing.lg,
+    paddingBottom: spacing.massive,
   },
-  photos: {
+  photosScroll: {
     flexGrow: 0,
-    marginBottom: 14,
+    marginHorizontal: -spacing.xl,
+    paddingHorizontal: spacing.xl,
   },
   photo: {
-    width: 220,
-    height: 150,
-    borderRadius: 12,
-    marginRight: 10,
-    backgroundColor: '#eee',
+    width: 240,
+    height: 160,
+    borderRadius: radius.lg,
+    marginRight: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
   },
   rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#1a1a1a',
-    flexShrink: 1,
-  },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginLeft: 8,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  badgeAvailable: {
-    backgroundColor: '#e6f6ec',
-  },
-  badgeTextAvailable: {
-    color: '#0b7a3e',
+    color: colors.text,
+    flex: 1,
+    letterSpacing: -0.5,
   },
   description: {
-    marginTop: 10,
-    fontSize: 15,
-    color: '#444',
-    lineHeight: 22,
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
   },
-  facts: {
-    marginTop: 18,
-    gap: 10,
+  factsGrid: {
+    gap: spacing.md,
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  fact: {},
+  factItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  factIcon: {
+    fontSize: 20,
+  },
+  factTextGroup: {
+    flex: 1,
+  },
   factLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#999',
+    color: colors.textMuted,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   factValue: {
-    fontSize: 15,
-    color: '#1a1a1a',
-    marginTop: 2,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 1,
   },
   donorCard: {
-    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 14,
-    padding: 16,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  donorAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  donorAvatarText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  donorInfo: {
+    flex: 1,
   },
   donorName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0b7a3e',
+    color: colors.primaryDark,
   },
   donorMeta: {
-    fontSize: 13,
-    color: '#777',
+    fontSize: 12,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   claimButton: {
-    backgroundColor: '#0b7a3e',
-    borderRadius: 12,
-    paddingVertical: 16,
+    marginTop: spacing.xs,
+  },
+  unavailableBox: {
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
     alignItems: 'center',
-    marginTop: 24,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  claimButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  unavailableNote: {
-    textAlign: 'center',
-    color: '#c0392b',
-    fontSize: 14,
-    marginTop: 24,
+  unavailableText: {
+    color: colors.textMuted,
+    fontSize: 13,
     fontWeight: '600',
+    textAlign: 'center',
   },
   reportLink: {
     alignSelf: 'center',
-    marginTop: 18,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    // Destructive action — generous tap target.
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   reportLinkText: {
-    color: '#c0392b',
+    color: colors.error,
     fontSize: 13,
     fontWeight: '600',
-  },
-  meta: {
-    color: '#888',
-    textAlign: 'center',
-    marginTop: 30,
-  },
-  error: {
-    color: '#c0392b',
-    textAlign: 'center',
-    marginTop: 40,
   },
 });

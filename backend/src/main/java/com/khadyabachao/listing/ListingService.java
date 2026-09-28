@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.springframework.data.domain.PageRequest;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -49,6 +51,7 @@ public class ListingService {
             .build();
 
         FoodListing saved = listingRepository.save(listing);
+        listingRepository.flush(); // populate @CreationTimestamp createdAt for the response
         eventPublisher.listingChanged(saved.getId(), "CREATED", saved.getStatus());
         return ListingResponse.from(saved);
     }
@@ -92,7 +95,20 @@ public class ListingService {
     @Transactional
     public void delete(UUID userId, UUID id) {
         FoodListing listing = ownedListing(userId, id);
-        listingRepository.delete(listing);
+        // Hard-deleting a listing that received claims violates the
+        // food_requests FK (no cascade) and surfaced as a raw 500. Steer
+        // donors to cancel, which preserves the audit trail instead.
+        if (listing.getStatus() != ListingStatus.AVAILABLE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Only available listings can be deleted — cancel the listing instead");
+        }
+        try {
+            listingRepository.delete(listing);
+            listingRepository.flush();
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Listing already has claims and cannot be deleted — cancel it instead");
+        }
     }
 
     @Transactional
@@ -115,23 +131,52 @@ public class ListingService {
     }
 
     @Transactional(readOnly = true)
-    public List<ListingResponse> nearby(double lat, double lng, double radiusKm,
-                                        FoodType foodType, Double minQuantity) {
-        double radiusMeters = Math.max(0.1, Math.min(radiusKm, 100)) * 1000;
+    public List<ListingResponse> nearby(double lat, double lng, Double maxDistanceKm, Double radiusKm,
+                                        FoodType foodType, Double minQuantity, Double maxQuantity,
+                                        Boolean includeExpired, Integer page, Integer size) {
+        double distKm = maxDistanceKm != null ? maxDistanceKm : (radiusKm != null ? radiusKm : 10.0);
+        double radiusMeters = Math.max(0.1, Math.min(distKm, 100)) * 1000;
+        boolean incExpired = Boolean.TRUE.equals(includeExpired);
+        // Clamp client-controlled paging — an unbounded radius query used to
+        // hydrate the entire result set (DoS vector on the hottest endpoint).
+        int safePage = page != null ? Math.max(0, page) : 0;
+        int safeSize = size != null ? Math.min(Math.max(1, size), 100) : 50;
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+
         return listingRepository
             .findNearby(lat, lng, radiusMeters,
-                foodType != null ? foodType.name() : null, minQuantity)
+                foodType != null ? foodType.name() : null,
+                minQuantity, maxQuantity, incExpired, pageable)
             .stream()
             .map(ListingResponse::from)
             .toList();
     }
 
     @Transactional(readOnly = true)
+    public List<ListingResponse> nearby(double lat, double lng, double radiusKm,
+                                        FoodType foodType, Double minQuantity) {
+        return nearby(lat, lng, null, radiusKm, foodType, minQuantity, null, false, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ListingResponse> browse(ListingStatus status, FoodType foodType,
+                                        Double minQuantity, Double maxQuantity,
+                                        Boolean includeExpired, Pageable pageable) {
+        boolean incExpired = Boolean.TRUE.equals(includeExpired);
+        ListingStatus targetStatus = status;
+        if (targetStatus == null && !incExpired) {
+            targetStatus = ListingStatus.AVAILABLE;
+        }
+        BigDecimal minQty = minQuantity != null ? BigDecimal.valueOf(minQuantity) : null;
+        BigDecimal maxQty = maxQuantity != null ? BigDecimal.valueOf(maxQuantity) : null;
+
+        var pageResult = listingRepository.browseListings(targetStatus, foodType, minQty, maxQty, incExpired, pageable);
+        return pageResult.map(ListingResponse::from);
+    }
+
+    @Transactional(readOnly = true)
     public Page<ListingResponse> browse(ListingStatus status, FoodType foodType, Pageable pageable) {
-        var page = foodType != null
-            ? listingRepository.findByStatusAndFoodType(status, foodType, pageable)
-            : listingRepository.findByStatus(status, pageable);
-        return page.map(ListingResponse::from);
+        return browse(status, foodType, null, null, false, pageable);
     }
 
     private FoodListing ownedListing(UUID userId, UUID id) {

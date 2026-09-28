@@ -2,8 +2,71 @@
 
 Monorepo containing:
 
-- `backend/` — Spring Boot 3 REST API + WebSocket STOMP (Java 17, PostgreSQL + Flyway)
+- `backend/` — Spring Boot 3.5 REST API + WebSocket STOMP (Java 17, PostgreSQL + PostGIS + Flyway)
 - `mobile/` — React Native app (Android first)
+
+## Architecture
+
+```mermaid
+flowchart TD
+    RN["React Native app (mobile/)
+    donor · recipient · admin flows"]
+
+    subgraph SB["Spring Boot API (backend/)"]
+        AUTH["auth/ + config/
+        Firebase ID-token verify · dev mode
+        JWT issue/filter · rate limit"]
+        LIS["listing/
+        create/update/cancel
+        PostGIS nearby + Haversine
+        expiry job (60s)"]
+        REQ["request/
+        claim → approve → complete
+        pessimistic-lock race protection
+        ratings · receipts"]
+        CHAT["chat/
+        STOMP WebSocket chat
+        pickup schedule negotiate"]
+        NOTIF["notification/
+        device tokens · FCM
+        (dev-log fallback)"]
+        VER["verification/ · admin/
+        NGO doc review · reports
+        user suspend · metrics"]
+        STATS["stats/
+        impact from COMPLETED pickups
+        daily aggregation"]
+        UP["common/
+        uploads: 5MB · JPEG/PNG/WebP
+        magic-byte sniffing · local/R2/Firebase"]
+    end
+
+    PG[("PostgreSQL 16 + PostGIS
+    Flyway V1–V18")]
+    FCM["Firebase Cloud Messaging"]
+    FB["Firebase Auth + Storage"]
+    R2["Cloudflare R2 (optional)"]
+
+    RN -- "REST /api/** (JWT Bearer)" --> SB
+    RN -- "STOMP /ws-raw · /topic/*" --> CHAT
+    RN -- "Google Maps SDK · OSM tiles" --- RN
+    AUTH --> PG
+    LIS --> PG
+    REQ --> PG
+    CHAT --> PG
+    VER --> PG
+    STATS --> PG
+    UP --> R2
+    AUTH -.-> FB
+    NOTIF -.-> FCM
+    UP -.-> FB
+```
+
+External services are optional in dev: without Firebase credentials the backend runs a dev-login path and logs notifications; uploads default to local disk.
+
+## Demo & Test Accounts
+
+See [DEMO_ACCOUNTS.md](./DEMO_ACCOUNTS.md) for 25 pre-seeded test accounts (5 for each role: Admin, Donor, Recipient NGO, Recipient Individual, Volunteer) with full activity data.
 
 ## Quick start (local dev)
 
@@ -20,6 +83,15 @@ docker compose up -d postgres
 ```bash
 cd backend
 DB_PORT=5433 ./mvnw spring-boot:run
+```
+
+**Full local mode** (real Firebase auth + FCM + Cloudflare R2 storage): all
+credentials live in the gitignored `backend/.env.local` — load it first:
+
+```bash
+cd backend
+set -a; source .env.local; set +a   # Firebase + R2 + DB port
+./mvnw spring-boot:run
 ```
 
 - Health: http://localhost:8080/api/health
@@ -87,11 +159,20 @@ Point release builds at your production API in `mobile/.env.production`
 - [x] Role-based access (`@PreAuthorize`) on donor/recipient/admin endpoints
 - [x] Input validation on all write endpoints (`jakarta.validation`)
 - [x] Parameterized queries only (JPA/Hibernate)
-- [x] Upload limits: 5MB, JPEG/PNG/WebP magic-type allowlist
-- [x] Per-IP rate limiting on `/api/auth/**` (20 req/min fixed window)
+- [x] Upload limits: 5MB; JPEG/PNG/WebP enforced by **magic-byte sniffing** (declared type must match actual bytes)
+- [x] Per-IP rate limiting on auth + write endpoints (configurable via `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS`)
 - [x] Deactivated accounts rejected at the auth-filter level
+- [x] Dev auth backdoor disabled under the `prod` profile; prod Flyway pass deactivates demo accounts; Swagger off in prod
 - [ ] TLS termination at reverse proxy (deployment concern)
 - [ ] Swap dev image storage → S3/GCS/Firebase Storage before scaling
+
+## Documentation
+
+- [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) — feature-by-feature audit matrix, defect log, mock-functionality disposition
+- [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) — every endpoint: auth, roles, payloads, errors
+- [TEST_PLAN.md](./TEST_PLAN.md) — automated suites, live E2E verification, manual device matrix
+- [FULL_CODE_AUDIT.md](./FULL_CODE_AUDIT.md) — line-by-line security/quality audit with remediation status
+- [RELEASE_GUIDE.md](./RELEASE_GUIDE.md) · [DEMO_ACCOUNTS.md](./DEMO_ACCOUNTS.md)
 
 ## Testing
 

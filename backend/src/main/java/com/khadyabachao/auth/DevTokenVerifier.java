@@ -2,6 +2,7 @@ package com.khadyabachao.auth;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Component;
  * NEVER active in production — FirebaseTokenVerifier replaces this bean.
  */
 @Component
+@Profile("!prod")
 @ConditionalOnMissingBean(FirebaseTokenVerifier.class)
 @ConditionalOnProperty(name = "app.firebase.enabled", havingValue = "false", matchIfMissing = true)
 public class DevTokenVerifier implements TokenVerifier {

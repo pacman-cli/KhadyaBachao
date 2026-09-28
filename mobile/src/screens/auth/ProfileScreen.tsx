@@ -1,12 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -21,6 +18,12 @@ import {
   type Verification,
 } from '../../api/verification';
 import {uploadImage} from '../../api/listings';
+import {colors} from '../../theme/colors';
+import {spacing} from '../../theme/spacing';
+import {radius} from '../../theme/radius';
+import {AppHeader} from '../../components/AppHeader';
+import {AppButton} from '../../components/AppButton';
+import {AppTextInput} from '../../components/AppTextInput';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
 
@@ -56,7 +59,7 @@ export function ProfileScreen({navigation}: Props) {
       }
       setDocUploading(true);
       try {
-        const url = await uploadImage(asset.uri);
+        const url = await uploadImage(asset.uri, asset.type ?? undefined);
         setDocUrl(url);
         Alert.alert('Uploaded', 'Document attached.');
       } catch {
@@ -97,145 +100,193 @@ export function ProfileScreen({navigation}: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.name}>{user.name}</Text>
-            <Text style={styles.meta}>{user.email}</Text>
-          </View>
-          <View
-            style={[
-              styles.badge,
-              user.verified ? styles.badgeVerified : styles.badgePending,
-            ]}>
-            <Text style={styles.badgeText}>
-              {user.verified ? 'Verified' : 'Unverified'}
+      <AppHeader
+        title="Profile & Settings"
+        showBack
+        onBack={() => navigation.goBack()}
+      />
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* User Identity Card */}
+        <View style={styles.userCard}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>
+              {user.name ? user.name.charAt(0).toUpperCase() : '👤'}
             </Text>
           </View>
+          <View style={styles.userMeta}>
+            <Text style={styles.userName}>{user.name}</Text>
+            <Text style={styles.userEmail}>{user.email}</Text>
+            <View
+              style={[
+                styles.badge,
+                user.verified ? styles.badgeVerified : styles.badgePending,
+              ]}>
+              <Text
+                style={[
+                  styles.badgeText,
+                  user.verified ? styles.badgeTextVerified : styles.badgeTextPending,
+                ]}>
+                {user.verified ? '✓ Verified Account' : 'Unverified Account'}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.roleRow}>
-          <Text style={styles.roleLabel}>Role:</Text>
-          <Text style={styles.roleValue}>{ROLE_LABELS[user.role]}</Text>
-          <Pressable onPress={() => navigation.replace('RoleSelect')}>
-            <Text style={styles.changeLink}>Change</Text>
-          </Pressable>
+        {/* Role Preference Row */}
+        <View style={styles.roleCard}>
+          <View style={styles.roleTextGroup}>
+            <Text style={styles.roleLabel}>Current Role</Text>
+            <Text style={styles.roleValue}>{ROLE_LABELS[user.role]}</Text>
+          </View>
+          <AppButton
+            title="Change Role"
+            variant="outline"
+            size="sm"
+            onPress={() => navigation.replace('RoleSelect')}
+          />
         </View>
 
-        <Text style={styles.sectionTitle}>Edit profile</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Name"
-          placeholderTextColor="#999"
-          value={name}
-          onChangeText={setName}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Phone"
-          placeholderTextColor="#999"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-        />
+        {/* Two-Directional Rating Averages Card */}
+        <Text style={styles.sectionTitle}>Rating Overview</Text>
+        <View style={styles.ratingsCard}>
+          <View style={styles.ratingStatItem}>
+            <Text style={styles.ratingStatVal}>
+              ⭐ {Number(user.ratingAvg ?? 0).toFixed(1)}
+            </Text>
+            <Text style={styles.ratingStatLabel}>Overall Rating</Text>
+          </View>
+          <View style={styles.ratingStatDivider} />
+          <View style={styles.ratingStatItem}>
+            <Text style={styles.ratingStatVal}>
+              🍲 {Number(user.donorRatingAvg ?? 0).toFixed(1)}
+            </Text>
+            <Text style={styles.ratingStatLabel}>As Donor</Text>
+          </View>
+          <View style={styles.ratingStatDivider} />
+          <View style={styles.ratingStatItem}>
+            <Text style={styles.ratingStatVal}>
+              🤝 {Number(user.recipientRatingAvg ?? 0).toFixed(1)}
+            </Text>
+            <Text style={styles.ratingStatLabel}>As Recipient</Text>
+          </View>
+        </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {/* Edit Profile Form */}
+        <Text style={styles.sectionTitle}>Personal Details</Text>
+        <View style={styles.formSection}>
+          <AppTextInput
+            label="Full Name"
+            placeholder="Your name"
+            value={name}
+            onChangeText={setName}
+          />
 
-        <Pressable
-          style={styles.button}
-          disabled={loading}
-          onPress={() => saveProfile({name, phone})}>
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Save changes</Text>
-          )}
-        </Pressable>
+          <AppTextInput
+            label="Phone Number"
+            placeholder="Your phone number"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+          />
 
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <AppButton
+            title="Save Profile Changes"
+            variant="primary"
+            loading={loading}
+            onPress={() => saveProfile({name, phone})}
+          />
+        </View>
+
+        {/* Verification Section */}
         {!user.verified && (
-          <>
-            <Text style={styles.sectionTitle}>Verification</Text>
+          <View style={styles.verifySection}>
+            <Text style={styles.sectionTitle}>Account Verification</Text>
             {verification && verification.verificationStatus === 'PENDING' ? (
               <View style={[styles.verifyBox, styles.verifyPending]}>
-                <Text style={styles.verifyTitle}>Under review</Text>
+                <Text style={styles.verifyTitle}>⏳ Under Review</Text>
                 <Text style={styles.verifyMeta}>
-                  We're checking "{verification.orgName}". This usually takes a
-                  day or two.
+                  We're reviewing "{verification.orgName}". Verification usually takes 1-2 business days.
                 </Text>
               </View>
             ) : verification &&
               verification.verificationStatus === 'REJECTED' ? (
               <View style={[styles.verifyBox, styles.verifyRejected]}>
                 <Text style={styles.verifyTitleRejected}>
-                  Verification rejected
+                  ❌ Verification Needs Update
                 </Text>
                 <Text style={styles.verifyMeta}>
-                  You can update your details and resubmit.
+                  Your organization document was rejected. Please resubmit with clearer documents.
                 </Text>
-                <Pressable
-                  style={styles.panelButton}
-                  onPress={() => setShowVerifyForm(true)}>
-                  <Text style={styles.panelButtonText}>Resubmit</Text>
-                </Pressable>
+                <AppButton
+                  title="Resubmit Document"
+                  variant="outline"
+                  size="sm"
+                  onPress={() => setShowVerifyForm(true)}
+                  style={{marginTop: 8}}
+                />
               </View>
             ) : showVerifyForm ? (
-              <View style={styles.verifyBox}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Organization name"
-                  placeholderTextColor="#999"
+              <View style={styles.verifyFormBox}>
+                <AppTextInput
+                  label="Organization Name"
+                  placeholder="e.g. Dhaka Food Rescue NGO"
                   value={orgName}
                   onChangeText={setOrgName}
+                  required
                 />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Type (NGO, Restaurant, Shelter…)"
-                  placeholderTextColor="#999"
+                <AppTextInput
+                  label="Organization Type"
+                  placeholder="e.g. NGO, Restaurant, Shelter"
                   value={orgType}
                   onChangeText={setOrgType}
                 />
-                <Pressable
-                  style={styles.docButton}
-                  disabled={docUploading}
-                  onPress={pickDocument}>
-                  {docUploading ? (
-                    <ActivityIndicator size="small" color="#0b7a3e" />
-                  ) : (
-                    <Text style={styles.docButtonText}>
-                      {docUrl ? '✓ Document attached — tap to replace' : 'Attach registration document (photo)'}
-                    </Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.button,
-                    (!orgName.trim() || !docUrl || submittingDoc) &&
-                      styles.buttonDisabled,
-                  ]}
-                  disabled={!orgName.trim() || !docUrl || submittingDoc}
-                  onPress={submitForVerification}>
-                  {submittingDoc ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.buttonText}>Submit for review</Text>
-                  )}
-                </Pressable>
+                <AppButton
+                  title={docUrl ? '✓ Document Attached' : 'Attach Registration Document'}
+                  variant={docUrl ? 'secondary' : 'outline'}
+                  size="sm"
+                  loading={docUploading}
+                  onPress={pickDocument}
+                  style={{marginBottom: 12}}
+                />
+                <AppButton
+                  title="Submit for Verification"
+                  variant="primary"
+                  loading={submittingDoc}
+                  disabled={!orgName.trim() || !docUrl}
+                  onPress={submitForVerification}
+                />
               </View>
             ) : (
-              <Pressable
-                style={styles.panelButton}
-                onPress={() => setShowVerifyForm(true)}>
-                <Text style={styles.panelButtonText}>
-                  Get verified (builds trust with donors)
+              <View style={styles.verifyPromptBox}>
+                <Text style={styles.verifyPromptTitle}>
+                  Get Verified for Higher Trust
                 </Text>
-              </Pressable>
+                <Text style={styles.verifyPromptDesc}>
+                  Verified organizations and individuals get priority listing and higher claim limits.
+                </Text>
+                <AppButton
+                  title="Start Verification Process"
+                  variant="secondary"
+                  size="md"
+                  onPress={() => setShowVerifyForm(true)}
+                  style={{marginTop: 8}}
+                />
+              </View>
             )}
-          </>
+          </View>
         )}
 
-        <Pressable style={[styles.button, styles.logout]} onPress={logout}>
-          <Text style={[styles.buttonText, styles.logoutText]}>Log out</Text>
-        </Pressable>
+        {/* Logout Button */}
+        <AppButton
+          title="Log Out"
+          variant="danger"
+          size="md"
+          onPress={logout}
+          style={styles.logoutBtn}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -244,156 +295,200 @@ export function ProfileScreen({navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   content: {
-    padding: 20,
+    padding: spacing.xl,
+    gap: spacing.lg,
   },
-  headerRow: {
+  userCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.lg,
   },
-  name: {
+  avatarCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#1a1a1a',
+    color: colors.primaryDark,
   },
-  meta: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+  userMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  userEmail: {
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    alignSelf: 'flex-start',
+    marginTop: 4,
   },
   badgeVerified: {
-    backgroundColor: '#e6f6ec',
+    backgroundColor: colors.successLight,
   },
   badgePending: {
-    backgroundColor: '#fdf1d6',
+    backgroundColor: colors.warningLight,
   },
   badgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#0b7a3e',
   },
-  roleRow: {
+  badgeTextVerified: {
+    color: colors.success,
+  },
+  badgeTextPending: {
+    color: colors.warning,
+  },
+  roleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    gap: 6,
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  roleTextGroup: {
+    gap: 2,
   },
   roleLabel: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 12,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    fontWeight: '700',
   },
   roleValue: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#1a1a1a',
+    color: colors.primaryDark,
   },
-  changeLink: {
-    fontSize: 14,
-    color: '#0b7a3e',
-    fontWeight: '700',
+  ratingsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  ratingStatItem: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  ratingStatVal: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  ratingStatLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  ratingStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: colors.border,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1a1a1a',
-    marginTop: 28,
-    marginBottom: 10,
+    color: colors.text,
   },
-  input: {
+  formSection: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    marginBottom: 12,
-    backgroundColor: '#fafafa',
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
   },
-  button: {
-    backgroundColor: '#0b7a3e',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 8,
+  error: {
+    color: colors.error,
+    fontSize: 13,
+    marginBottom: spacing.md,
+    textAlign: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  logout: {
-    backgroundColor: '#f5f5f5',
-  },
-  logoutText: {
-    color: '#c0392b',
+  verifySection: {
+    gap: spacing.md,
   },
   verifyBox: {
     borderWidth: 1,
-    borderColor: '#e2e2e2',
-    borderRadius: 12,
-    padding: 14,
-    gap: 10,
-    backgroundColor: '#fafafa',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: 6,
   },
   verifyPending: {
-    backgroundColor: '#fdf1d6',
-    borderColor: '#ecd9a0',
+    backgroundColor: colors.warningLight,
+    borderColor: '#FDE68A',
   },
   verifyRejected: {
-    backgroundColor: '#fdeaea',
-    borderColor: '#eec3c3',
+    backgroundColor: colors.errorLight,
+    borderColor: '#FCA5A5',
   },
   verifyTitle: {
     fontWeight: '800',
-    color: '#9a6b00',
+    color: colors.warning,
+    fontSize: 15,
   },
   verifyTitleRejected: {
     fontWeight: '800',
-    color: '#c0392b',
+    color: colors.error,
+    fontSize: 15,
   },
   verifyMeta: {
     fontSize: 13,
-    color: '#555',
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
-  panelButton: {
-    backgroundColor: '#0b7a3e',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    marginTop: 6,
-  },
-  panelButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  docButton: {
+  verifyFormBox: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#0b7a3e',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
   },
-  docButtonText: {
-    color: '#0b7a3e',
-    fontWeight: '600',
+  verifyPromptBox: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: 4,
+  },
+  verifyPromptTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  verifyPromptDesc: {
     fontSize: 13,
+    color: colors.primaryDark,
+    lineHeight: 18,
   },
-  error: {
-    color: '#c0392b',
-    marginBottom: 8,
-    textAlign: 'center',
+  logoutBtn: {
+    marginTop: spacing.md,
   },
 });

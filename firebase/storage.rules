@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// Khadya Bachao — Cloud Storage security rules.
+//
+// Storage is written exclusively by the backend (FirebaseStorageService via the
+// Admin SDK, which bypasses these rules). Objects are named "uploads/<uuid><ext>"
+// and the backend hands out permanent public download URLs of the form
+//   https://firebasestorage.googleapis.com/v0/b/<bucket>/o/uploads%2F<uuid><ext>?alt=media
+// so listing photos must be publicly READABLE, but the client must never be able
+// to write, overwrite, or delete anything.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Public read for listing photos served by direct download URL.
+    match /uploads/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else: no client access at all.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

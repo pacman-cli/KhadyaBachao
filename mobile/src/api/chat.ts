@@ -17,6 +17,8 @@ export type Schedule = {
   confirmedByDonor: boolean;
   confirmedByRecipient: boolean;
   status: 'PROPOSED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+  donorId: string;
+  recipientId: string;
 };
 
 export async function fetchHistory(

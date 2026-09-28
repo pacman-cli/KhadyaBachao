@@ -7,6 +7,7 @@ import com.khadyabachao.user.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,19 +15,28 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * Dev-only login: issues a backend JWT without Firebase so the full auth
- * pipeline can be exercised locally. Removed automatically when
- * app.firebase.enabled=true.
+ * pipeline can be exercised locally. Excluded when running in prod profile.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth/dev")
+@Profile("!prod")
 @ConditionalOnProperty(name = "app.firebase.enabled", havingValue = "false", matchIfMissing = true)
 @RequiredArgsConstructor
 public class DevAuthController {
 
     private final UserRepository userRepository;
     private final JwtService jwtService;
+
+    @PostConstruct
+    void init() {
+        log.warn("SECURITY WARNING: DevAuthController is ACTIVE. POST /api/auth/dev/login is enabled for testing. Excluded when spring.profiles.active=prod.");
+    }
 
     public record DevLoginRequest(
         @NotBlank @Email String email,
@@ -38,21 +48,39 @@ public class DevAuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<TokenResponse> devLogin(@RequestBody DevLoginRequest request) {
-        UserRole role = request.role() != null ? UserRole.valueOf(request.role()) : UserRole.RECIPIENT_INDIVIDUAL;
+    public ResponseEntity<DevLoginResponse> devLogin(@RequestBody DevLoginRequest request) {
+        UserRole requested = request.role() != null ? safeValueOf(request.role()) : null;
+        if (requested == UserRole.ADMIN) {
+            // Audit B17: dev login must never mint or overwrite an ADMIN.
+            throw new IllegalArgumentException("ADMIN role cannot be granted via dev login");
+        }
+        boolean isNewUser = userRepository.findByEmail(request.email()).isEmpty();
         User user = userRepository.findByEmail(request.email())
             .orElseGet(() -> userRepository.save(User.builder()
                 .firebaseUid("dev-" + request.email())
                 .name(request.name())
                 .email(request.email())
-                .role(role)
+                .role(requested != null ? requested : UserRole.RECIPIENT_INDIVIDUAL)
                 .build()));
 
-        if (request.role() != null && user.getRole() != role) {
-            user.setRole(role);
+        if (requested != null && user.getRole() != requested) {
+            user.setRole(requested);
             userRepository.save(user);
         }
 
-        return ResponseEntity.ok(new TokenResponse(jwtService.issueToken(user.getId(), user.getRole().name())));
+        String token = jwtService.issueToken(user.getId(), user.getRole().name());
+        return ResponseEntity.ok(new DevLoginResponse(token, isNewUser));
+    }
+
+    /** {@code newUser} lets the client decide whether to show role selection. */
+    public record DevLoginResponse(String accessToken, boolean newUser) {
+    }
+
+    private static UserRole safeValueOf(String role) {
+        try {
+            return UserRole.valueOf(role);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown role: " + role);
+        }
     }
 }

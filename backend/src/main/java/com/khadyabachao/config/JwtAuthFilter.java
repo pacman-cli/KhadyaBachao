@@ -32,21 +32,42 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
-            try {
-                UUID userId = jwtService.validateAndParse(header.substring(7));
-                userRepository.findById(userId)
-                    .filter(User::isActive)
-                    .ifPresent(user -> {
-                        AuthenticatedUser principal = new AuthenticatedUser(user);
-                        var auth = new UsernamePasswordAuthenticationToken(
-                            principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())));
-                        SecurityContextHolder.getContext().setAuthentication(auth);
-                    });
-            } catch (Exception ignored) {
-                // invalid/expired token -> request stays unauthenticated
+            authenticate(header.substring(7));
+        } else if (header == null && isReceiptRequest(request)) {
+            // Receipts open in the system browser/share sheet, where no
+            // Authorization header can be attached. Accept the same JWT as a
+            // `token` query param for THIS path only — it stays participant-
+            // gated by the controller, and the JWT is short-lived.
+            String token = request.getParameter("token");
+            if (token != null && !token.isBlank()) {
+                authenticate(token);
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isReceiptRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.matches("^/api/requests/[0-9a-fA-F-]{36}/receipt$");
+    }
+
+    private void authenticate(String token) {
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            return;
+        }
+        try {
+            UUID userId = jwtService.validateAndParse(token);
+            userRepository.findById(userId)
+                .filter(User::isActive)
+                .ifPresent(user -> {
+                    AuthenticatedUser principal = new AuthenticatedUser(user);
+                    var auth = new UsernamePasswordAuthenticationToken(
+                        principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                });
+        } catch (Exception ignored) {
+            // invalid/expired token -> request stays unauthenticated
+        }
     }
 
     public record AuthenticatedUser(UUID id, String name, UserRole role) {

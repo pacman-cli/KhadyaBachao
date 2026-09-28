@@ -2,13 +2,16 @@ import React, {useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import {colors} from '../theme/colors';
 import {ratePickup, type FoodRequest} from '../api/requests';
 
 type Props = {
@@ -44,14 +47,22 @@ export function RatingModal({claim, onClose, onRated}: Props) {
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.title}>Rate your pickup</Text>
           <Text style={styles.subtitle}>{claim.listingTitle}</Text>
 
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map(n => (
-              <Pressable key={n} onPress={() => setStars(n)} hitSlop={6}>
+              <Pressable
+                key={n}
+                onPress={() => setStars(n)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Rate ${n} star${n > 1 ? 's' : ''}`}
+                accessibilityState={{selected: n <= stars}}>
                 <Text style={[styles.star, n <= stars && styles.starActive]}>
                   {n <= stars ? '★' : '☆'}
                 </Text>
@@ -62,7 +73,7 @@ export function RatingModal({claim, onClose, onRated}: Props) {
           <TextInput
             style={styles.comment}
             placeholder="Anything to say? (optional)"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textLight}
             value={comment}
             onChangeText={setComment}
             multiline
@@ -84,7 +95,7 @@ export function RatingModal({claim, onClose, onRated}: Props) {
             </Pressable>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

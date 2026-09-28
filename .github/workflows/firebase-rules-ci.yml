@@ -1,0 +1,41 @@
+name: firebase-rules-ci
+
+on:
+  push:
+    paths: ["firebase/**", "firebase.json", ".github/workflows/firebase-rules-ci.yml"]
+  pull_request:
+    paths: ["firebase/**", "firebase.json", ".github/workflows/firebase-rules-ci.yml"]
+  workflow_dispatch:
+
+jobs:
+  validate-rules:
+    name: Validate Firebase Security Rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      # One emulator session does both jobs:
+      #  1. firebase.json's rules files are compiled and loaded by the emulators
+      #     (any syntax error fails the whole command), and
+      #  2. firebase/rules.test.js pins the actual deny-by-default behavior using
+      #     @firebase/rules-unit-testing against those same emulators.
+      - name: Validate & unit-test rules
+        working-directory: firebase
+        env:
+          # Node 22+ only: lets require() resolve the harness from the shared cache
+          # without adding a package.json to the repo.
+          NODE_PATH: ${{ github.workspace }}/.rules-harness/node_modules
+          # Keep Java's GC noise from slowing emulator startup.
+          JAVA_TOOL_OPTIONS: -Xshare:off
+        run: |
+          npm install --prefix "$GITHUB_WORKSPACE/.rules-harness" \
+            @firebase/rules-unit-testing@3 firebase@10 jsdom
+          firebase emulators:exec --only firestore,storage --project khadyabachao \
+            "node rules.test.js"

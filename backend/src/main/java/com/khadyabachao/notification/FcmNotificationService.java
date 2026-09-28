@@ -4,12 +4,14 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
+import com.khadyabachao.user.UserRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -27,6 +29,8 @@ public class FcmNotificationService implements NotificationService {
     private String credentialsPath;
 
     private final DeviceTokenRepository deviceTokenRepository;
+    private final NotificationRecordRepository notificationRecordRepository;
+    private final UserRepository userRepository;
 
     private FirebaseMessaging messaging;
 
@@ -45,7 +49,30 @@ public class FcmNotificationService implements NotificationService {
     }
 
     @Override
+    @Transactional
     public void sendToUsers(List<UUID> userIds, String title, String body, Map<String, String> data) {
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+
+        String type = data != null ? data.getOrDefault("type", "GENERAL") : "GENERAL";
+        String dataJson = NotificationDataJson.toJson(data);
+
+        // Persist notification records to DB
+        for (UUID userId : userIds) {
+            userRepository.findById(userId).ifPresent(user -> {
+                notificationRecordRepository.save(NotificationRecord.builder()
+                    .user(user)
+                    .title(title)
+                    .body(body)
+                    .type(type)
+                    .dataJson(dataJson)
+                    .read(false)
+                    .build());
+            });
+        }
+
+        // Send FCM push notifications
         List<String> tokens = deviceTokenRepository.findTokensByUserIds(userIds);
         for (String token : tokens) {
             try {

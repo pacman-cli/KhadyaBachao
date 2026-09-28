@@ -25,7 +25,7 @@ public class StatsController {
     private final FoodListingRepository listingRepository;
     private final FoodRequestRepository requestRepository;
     private final UserRepository userRepository;
-    private final JdbcTemplate jdbc;
+    private final DailyStatsRepository dailyStatsRepository;
 
     public record MyStats(
         UserRole role,
@@ -67,16 +67,15 @@ public class StatsController {
     }
 
     /** Public impact dashboard (no auth required). */
-    @GetMapping("/system")
+    @GetMapping({"/system", "/summary"})
     public SystemStats system() {
-        List<SystemStats.DailyRow> daily = jdbc.query(
-            "SELECT date, total_kg_rescued, total_listings, total_completed_pickups "
-                + "FROM stats_daily ORDER BY date DESC LIMIT 14",
-            (rs, i) -> new SystemStats.DailyRow(
-                rs.getDate("date").toLocalDate(),
-                rs.getDouble("total_kg_rescued"),
-                rs.getInt("total_listings"),
-                rs.getInt("total_completed_pickups")));
+        List<SystemStats.DailyRow> daily = dailyStatsRepository.findTop14ByOrderByDateDesc().stream()
+            .map(ds -> new SystemStats.DailyRow(
+                ds.getDate(),
+                ds.getTotalKgRescued().doubleValue(),
+                ds.getTotalListings(),
+                ds.getTotalCompletedPickups()))
+            .toList();
 
         return new SystemStats(
             listingRepository.count(),
@@ -84,5 +83,29 @@ public class StatsController {
             listingRepository.sumRescuedTotal(),
             daily,
             listingRepository.topDonors(PageRequest.of(0, 5)));
+    }
+
+    public record OrgStats(
+        java.util.UUID orgId,
+        long claimsMade,
+        long pickupsCompleted,
+        BigDecimal quantityRescued) {
+    }
+
+    @GetMapping("/organization/{id}")
+    public OrgStats orgStats(
+        @org.springframework.web.bind.annotation.PathVariable java.util.UUID id,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal AuthenticatedUser principal) {
+        // Impact profiles are personal data — restrict to the caller's own
+        // org stats (system-wide aggregates remain public via /stats/system).
+        if (!id.equals(principal.id())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN, "You can only view your own organization stats");
+        }
+        return new OrgStats(
+            id,
+            requestRepository.countByRecipientId(id),
+            requestRepository.countCompletedByRecipient(id),
+            requestRepository.sumReceivedByRecipient(id));
     }
 }

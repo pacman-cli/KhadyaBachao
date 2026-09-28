@@ -2,6 +2,12 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// react-native-config: embed mobile/.env values (API_BASE_URL, FIREBASE_ENABLED,
+// GOOGLE_WEB_CLIENT_ID, ...) into the build. Without this line Config.* reads
+// empty on Android and Google Sign-In falls back to a placeholder webClientId,
+// which fails with DEVELOPER_ERROR.
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -90,7 +96,7 @@ android {
         versionName "1.0"
         manifestPlaceholders += [
             googleMapsApiKey: (System.getenv("GOOGLE_MAPS_API_KEY")
-                ?: project.findProperty("googleMapsApiKey") ?: "")
+                ?: project.findProperty("googleMapsApiKey") ?: "AIzaSy_DEV_DEFAULT_PLACEHOLDER_KEY")
         ]
     }
     signingConfigs {
@@ -115,11 +121,28 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Audit M1: the AndroidManifest references ${usesCleartextTraffic} but
+            // nothing defined it — the merge result depended on build environment.
+            // Debug allows cleartext so dev servers (http://10.0.2.2 / LAN IP) work.
+            manifestPlaceholders += [usesCleartextTraffic: true]
         }
         release {
             // Uses keystore.properties when present (see docs in README);
-            // falls back to the debug key so CI builds still succeed.
-            signingConfig keystorePropsAvailable() ? signingConfigs.release : signingConfigs.debug
+            // falls back to the debug key so CI builds still succeed — but the
+            // fallback is announced loudly (audit M4) so a debug-signed release
+            // APK can never ship unnoticed.
+            if (keystorePropsAvailable()) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+                println("*******************************************************************")
+                println("WARNING (KhadyaBachao): android/keystore.properties is missing —")
+                println("the RELEASE APK will be signed with the PUBLIC DEBUG key and must")
+                println("NOT be distributed. See README 'Release signing' for setup.")
+                println("*******************************************************************")
+            }
+            // Audit M1: release builds must never permit plain-HTTP traffic.
+            manifestPlaceholders += [usesCleartextTraffic: false]
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -136,3 +159,8 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// @react-native-firebase requirement: without this plugin the google-services
+// resources are never generated, FirebaseInitProvider no-ops and every firebase
+// JS call fails with "No Firebase App '[DEFAULT]' has been created".
+apply plugin: "com.google.gms.google-services"

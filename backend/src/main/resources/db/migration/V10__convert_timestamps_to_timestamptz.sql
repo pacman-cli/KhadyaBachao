@@ -1,0 +1,20 @@
+-- Convert remaining bare TIMESTAMP columns in V4-V8 tables to TIMESTAMPTZ
+ALTER TABLE food_requests
+  ALTER COLUMN requested_at TYPE TIMESTAMPTZ USING requested_at AT TIME ZONE 'UTC',
+  ALTER COLUMN responded_at TYPE TIMESTAMPTZ USING responded_at AT TIME ZONE 'UTC';
+
+ALTER TABLE device_tokens
+  ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+
+ALTER TABLE pickup_schedules
+  ALTER COLUMN agreed_time TYPE TIMESTAMPTZ USING agreed_time AT TIME ZONE 'UTC',
+  ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+
+ALTER TABLE chat_messages
+  ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING sent_at AT TIME ZONE 'UTC';
+
+ALTER TABLE ratings
+  ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+
+ALTER TABLE reports
+  ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';

@@ -5,10 +5,13 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "ratings")
+@Table(name = "ratings", uniqueConstraints = {
+    @UniqueConstraint(name = "uk_ratings_request_rater", columnNames = {"request_id", "rater_id"})
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -20,14 +23,20 @@ public class Rating {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    /** One rating per request (unique constraint). */
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "request_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "request_id", nullable = false)
     private FoodRequest request;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "rater_id", nullable = false)
+    private User rater;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "rated_user_id", nullable = false)
     private User ratedUser;
+
+    @Column(name = "target_role", nullable = false, length = 20)
+    private String targetRole; // "DONOR" or "RECIPIENT"
 
     @Column(nullable = false)
     private int rating;
@@ -37,5 +46,5 @@ public class Rating {
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private java.time.Instant createdAt;
+    private Instant createdAt;
 }

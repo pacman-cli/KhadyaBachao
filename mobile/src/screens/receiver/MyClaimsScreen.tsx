@@ -12,20 +12,21 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../navigation/RootNavigator';
-import {cancelClaim, myClaims, type FoodRequest} from '../../api/requests';
+import {cancelClaim, myClaims, openReceiptPdf, type FoodRequest} from '../../api/requests';
 import {RatingModal} from '../../components/RatingModal';
-
-const STATUS_COLORS: Record<FoodRequest['status'], string> = {
-  PENDING: '#e67e22',
-  ACCEPTED: '#0b7a3e',
-  REJECTED: '#c0392b',
-  CANCELLED: '#999999',
-};
+import {colors} from '../../theme/colors';
+import {spacing} from '../../theme/spacing';
+import {radius} from '../../theme/radius';
+import {AppHeader} from '../../components/AppHeader';
+import {AppButton} from '../../components/AppButton';
+import {Badge} from '../../components/Badge';
+import {EmptyState} from '../../components/EmptyState';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyClaims'>;
 
 export function MyClaimsScreen({navigation}: Props) {
   const [claims, setClaims] = useState<FoodRequest[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [ratingClaim, setRatingClaim] = useState<FoodRequest | null>(null);
 
@@ -33,8 +34,9 @@ export function MyClaimsScreen({navigation}: Props) {
     setRefreshing(true);
     try {
       setClaims(await myClaims());
-    } catch {
-      // keep old data
+      setLoaded(true);
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.detail ?? 'Could not load your claims');
     } finally {
       setRefreshing(false);
     }
@@ -47,13 +49,21 @@ export function MyClaimsScreen({navigation}: Props) {
   );
 
   function confirmCancel(claim: FoodRequest) {
-    Alert.alert('Cancel claim', `Release "${claim.listingTitle}"?`, [
+    Alert.alert('Release claim', `Release "${claim.listingTitle}"?`, [
       {text: 'No', style: 'cancel'},
       {
         text: 'Yes, release it',
         style: 'destructive',
         onPress: async () => {
-          await cancelClaim(claim.id);
+          try {
+            await cancelClaim(claim.id);
+          } catch (e: any) {
+            Alert.alert(
+              'Error',
+              e?.response?.data?.detail ?? 'Could not release the claim',
+            );
+            return;
+          }
           load();
         },
       },
@@ -62,80 +72,108 @@ export function MyClaimsScreen({navigation}: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.heading}>My claims</Text>
+      <AppHeader
+        title="My Claimed Food"
+        subtitle="Track pickup status, chat with donors & rate completed rescues"
+        showBack
+        onBack={() => navigation.goBack()}
+        rightAction={
+          <AppButton
+            title="Find Food"
+            size="sm"
+            onPress={() => navigation.replace('Discover')}
+          />
+        }
+      />
+
       <FlatList
         data={claims}
         keyExtractor={item => item.id}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={load} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={load}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
         }
         contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.empty}>
-              No claims yet. Find food on the map!
-            </Text>
-            <Pressable
-              style={styles.browseButton}
-              onPress={() => navigation.replace('Discover')}>
-              <Text style={styles.browseButtonText}>Browse map</Text>
-            </Pressable>
-          </View>
-        }
+        ListEmptyComponent={loaded ? (
+          <EmptyState
+            title="No Claims Yet"
+            message="You haven't claimed any surplus food items. Discover available food near you on the map!"
+            actionLabel="Discover Nearby Food"
+            onAction={() => navigation.replace('Discover')}
+          />
+        ) : undefined}
         renderItem={({item}) => (
           <Pressable
-            style={styles.card}
+            style={({pressed}) => [styles.card, pressed && styles.pressed]}
             onPress={() =>
               navigation.navigate('ListingDetail', {listingId: item.listingId})
             }>
             <View style={styles.rowBetween}>
-              <Text style={styles.title}>{item.listingTitle}</Text>
-              <View
-                style={[
-                  styles.badge,
-                  {backgroundColor: STATUS_COLORS[item.status] + '22'},
-                ]}>
-                <Text
-                  style={[styles.badgeText, {color: STATUS_COLORS[item.status]}]}>
-                  {item.status}
-                </Text>
-              </View>
+              <Text style={styles.title} numberOfLines={2}>{item.listingTitle}</Text>
+              <Badge label={item.status} variant={item.status as any} />
             </View>
-            <Text style={styles.meta}>
-              {Number(item.quantityValue)} {item.quantityUnit} ·{' '}
-              {item.foodType.toLowerCase()} · pickup: {item.listingStatus.toLowerCase()}
-            </Text>
-            {item.listingStatus === 'COMPLETED' && !item.rated && (
-              <Pressable
-                style={[styles.actionButton, styles.chatButton]}
-                onPress={() => setRatingClaim(item)}>
-                <Text style={styles.chatButtonText}>★ Rate donor</Text>
-              </Pressable>
+
+            <View style={styles.metaRow}>
+              <Badge label={item.foodType} variant={item.foodType as any} size="sm" />
+              <Text style={styles.metaText}>
+                {Number(item.quantityValue)} {item.quantityUnit}
+              </Text>
+              <Text style={styles.statusSubtext}>
+                · Status: {item.listingStatus.toLowerCase()}
+              </Text>
+            </View>
+
+            {item.listingStatus === 'COMPLETED' && (
+              <View style={styles.completedActionsRow}>
+                {!item.rated && (
+                  <AppButton
+                    title="★ Rate Food & Donor"
+                    variant="secondary"
+                    size="sm"
+                    style={{flex: 1}}
+                    onPress={() => setRatingClaim(item)}
+                  />
+                )}
+                <AppButton
+                  title="📄 PDF Receipt"
+                  variant="outline"
+                  size="sm"
+                  style={{flex: 1}}
+                  onPress={() => openReceiptPdf(item.id)}
+                />
+              </View>
             )}
 
             {(item.status === 'ACCEPTED' || item.status === 'PENDING') &&
               item.listingStatus !== 'COMPLETED' && (
                 <View style={styles.actionsRow}>
-                  <Pressable
-                    style={[styles.actionButton, styles.chatButton]}
+                  <AppButton
+                    title="💬 Chat & Pickup Schedule"
+                    variant="primary"
+                    size="sm"
+                    style={{flex: 1}}
                     onPress={() =>
                       navigation.navigate('Chat', {
                         requestId: item.id,
                         title: item.listingTitle,
                       })
-                    }>
-                    <Text style={styles.chatButtonText}>Chat & schedule</Text>
-                  </Pressable>
+                    }
+                  />
                   <Pressable
-                    style={styles.cancelButton}
+                    style={styles.cancelLink}
                     onPress={() => confirmCancel(item)}>
-                    <Text style={styles.cancelButtonText}>Release</Text>
+                    <Text style={styles.cancelLinkText}>Release</Text>
                   </Pressable>
                 </View>
               )}
           </Pressable>
         )}
       />
+
       {ratingClaim && (
         <RatingModal
           claim={ratingClaim}
@@ -150,110 +188,71 @@ export function MyClaimsScreen({navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  heading: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
+    backgroundColor: colors.background,
   },
   list: {
-    padding: 20,
-    paddingTop: 4,
-    gap: 12,
-  },
-  emptyWrap: {
-    alignItems: 'center',
-    marginTop: 40,
-  },
-  empty: {
-    textAlign: 'center',
-    color: '#888',
-    fontSize: 14,
-  },
-  browseButton: {
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#0b7a3e',
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  browseButtonText: {
-    color: '#0b7a3e',
-    fontWeight: '700',
+    padding: spacing.xl,
+    gap: spacing.lg,
   },
   card: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 14,
-    padding: 16,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
+  pressed: {
+    borderColor: colors.primary,
   },
   rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   title: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#1a1a1a',
-    flexShrink: 1,
+    color: colors.text,
+    flex: 1,
   },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    marginLeft: 8,
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: 2,
   },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  meta: {
-    marginTop: 4,
+  metaText: {
     fontSize: 13,
-    color: '#666',
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  statusSubtext: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  actionBtn: {
+    marginTop: spacing.md,
+  },
+  completedActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    gap: 10,
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
-  actionButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
+  cancelLink: {
+    paddingHorizontal: spacing.sm,
+    // Destructive action — generous tap target.
+    paddingVertical: 12,
   },
-  chatButton: {
-    backgroundColor: '#0b7a3e',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 0,
-  },
-  chatButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    alignSelf: 'flex-start',
-    marginTop: 0,
-    borderWidth: 1,
-    borderColor: '#c0392b',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  cancelButtonText: {
-    color: '#c0392b',
+  cancelLinkText: {
+    color: colors.error,
     fontSize: 13,
     fontWeight: '600',
   },

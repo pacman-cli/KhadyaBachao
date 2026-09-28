@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Khadya Bachao — Firestore security rules.
+//
+// This app has NO client-side Firestore usage. The mobile client talks only to
+// the Spring Boot backend over HTTPS/WSS, and the backend holds the Firebase
+// Admin SDK, which bypasses these rules entirely.
+//
+// Therefore the only safe baseline for the Firestore database is "locked mode":
+// deny every client operation. Any future feature that wants to read/write
+// Firestore directly from the app MUST relax these rules deliberately, with
+// per-collection match blocks, ownership checks, and type/size validation
+// reviewed against the firebase-security-rules-auditor checklist:
+//   1. create vs update parity          4. string length / array size limits
+//   2. authority never from request.resource.data  5. is string / is int / is timestamp
+//   3. rules must support the business logic       6. ownership checks with hasOnly()/diff()
+service cloud.firestore {
+  match /{document=**} {
+    allow read, write: if false;
+  }
+}

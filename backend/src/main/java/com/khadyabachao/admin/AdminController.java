@@ -1,13 +1,15 @@
 package com.khadyabachao.admin;
 
 import com.khadyabachao.listing.FoodListingRepository;
-import com.khadyabachao.listing.ListingStatus;
 import com.khadyabachao.user.UserRepository;
 import com.khadyabachao.verification.OrganizationRepository;
 import com.khadyabachao.verification.VerificationStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -21,62 +23,55 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminController {
 
-    private final ReportRepository reportRepository;
+    private final ReportService reportService;
     private final UserRepository userRepository;
     private final OrganizationRepository organizationRepository;
     private final FoodListingRepository listingRepository;
 
     @GetMapping("/reports")
-    public Page<ReportController.ReportResponse> reports(
+    public Page<ReportService.ReportResponse> reports(
         @RequestParam(defaultValue = "OPEN") ReportStatus status,
-        @RequestParam(defaultValue = "0") int page) {
-        return reportRepository
-            .findByStatusOrderByCreatedAtDesc(status, PageRequest.of(page, 20))
-            .map(ReportController.ReportResponse::from);
+        @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return reportService.findByStatus(status, pageable);
     }
 
     @PatchMapping("/reports/{id}/resolve")
-    @org.springframework.transaction.annotation.Transactional
-    public ReportController.ReportResponse resolve(@PathVariable java.util.UUID id) {
-        return setReportStatus(id, ReportStatus.RESOLVED);
+    public ReportService.ReportResponse resolve(@PathVariable java.util.UUID id) {
+        return reportService.setStatus(id, ReportStatus.RESOLVED);
     }
 
     @PatchMapping("/reports/{id}/dismiss")
-    @org.springframework.transaction.annotation.Transactional
-    public ReportController.ReportResponse dismiss(@PathVariable java.util.UUID id) {
-        return setReportStatus(id, ReportStatus.DISMISSED);
-    }
-
-    private ReportController.ReportResponse setReportStatus(java.util.UUID id, ReportStatus status) {
-        Report report = reportRepository.findById(id)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
-        report.setStatus(status);
-        if (status == ReportStatus.RESOLVED && report.getTargetType() == ReportTargetType.LISTING) {
-            listingRepository.findById(report.getTargetId()).ifPresent(l -> {
-                if (l.getStatus() == ListingStatus.AVAILABLE || l.getStatus() == ListingStatus.CLAIMED) {
-                    l.setStatus(ListingStatus.CANCELLED);
-                    listingRepository.save(l);
-                }
-            });
-        }
-        return ReportController.ReportResponse.from(reportRepository.save(report));
+    public ReportService.ReportResponse dismiss(@PathVariable java.util.UUID id) {
+        return reportService.setStatus(id, ReportStatus.DISMISSED);
     }
 
     @PostMapping("/users/{id}/deactivate")
     @org.springframework.transaction.annotation.Transactional
-    public Map<String, Object> deactivate(@PathVariable java.util.UUID id) {
-        return setUserActive(id, false);
+    public Map<String, Object> deactivate(@PathVariable java.util.UUID id,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.khadyabachao.config.JwtAuthFilter.AuthenticatedUser principal) {
+        return setUserActive(id, false, principal.id());
     }
 
     @PostMapping("/users/{id}/reactivate")
     @org.springframework.transaction.annotation.Transactional
-    public Map<String, Object> reactivate(@PathVariable java.util.UUID id) {
-        return setUserActive(id, true);
+    public Map<String, Object> reactivate(@PathVariable java.util.UUID id,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.khadyabachao.config.JwtAuthFilter.AuthenticatedUser principal) {
+        return setUserActive(id, true, principal.id());
     }
 
-    private Map<String, Object> setUserActive(java.util.UUID id, boolean active) {
+    private Map<String, Object> setUserActive(java.util.UUID id, boolean active, java.util.UUID callerId) {
         var user = userRepository.findById(id)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        // Lock-out protection: deactivating yourself (or another admin) can
+        // leave the platform with no working admin at all.
+        if (!active) {
+            if (id.equals(callerId)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "You cannot deactivate your own account");
+            }
+            if (user.getRole() == com.khadyabachao.user.UserRole.ADMIN) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Admin accounts cannot be deactivated");
+            }
+        }
         user.setActive(active);
         userRepository.save(user);
         return Map.of("id", id.toString(), "active", active);
@@ -87,7 +82,7 @@ public class AdminController {
         return Map.of(
             "usersByRole", userRepository.countByRoleGrouped(),
             "listingsByStatus", listingRepository.countByStatusGrouped(),
-            "openReports", reportRepository.findByStatusOrderByCreatedAtDesc(ReportStatus.OPEN, PageRequest.of(0, 1)).getTotalElements(),
+            "openReports", reportService.findByStatus(ReportStatus.OPEN, PageRequest.of(0, 1)).getTotalElements(),
             "pendingVerifications", organizationRepository.countByVerificationStatus(VerificationStatus.PENDING));
     }
 }

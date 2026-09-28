@@ -10,7 +10,11 @@ public record ScheduleResponse(
     String agreedLocation,
     boolean confirmedByDonor,
     boolean confirmedByRecipient,
-    ScheduleStatus status
+    ScheduleStatus status,
+    // Audit M21: client needs the participant ids to show *whose* confirmation
+    // is still pending (per-user state) instead of a single combined flag.
+    UUID donorId,
+    UUID recipientId
 ) {
 
     public static ScheduleResponse from(PickupSchedule s) {
@@ -21,6 +25,8 @@ public record ScheduleResponse(
             s.getAgreedLocation(),
             s.isConfirmedByDonor(),
             s.isConfirmedByRecipient(),
-            s.getStatus());
+            s.getStatus(),
+            s.getRequest().getListing().getDonor().getId(),
+            s.getRequest().getRecipient().getId());
     }
 }

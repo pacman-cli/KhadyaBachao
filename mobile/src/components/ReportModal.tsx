@@ -2,13 +2,16 @@ import React, {useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import {colors} from '../theme/colors';
 import {reportTarget} from '../api/reports';
 
 type Props = {
@@ -38,7 +41,9 @@ export function ReportModal({targetId, onClose}: Props) {
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.title}>Report this listing</Text>
           <Text style={styles.subtitle}>
@@ -47,7 +52,7 @@ export function ReportModal({targetId, onClose}: Props) {
           <TextInput
             style={styles.input}
             placeholder="Reason"
-            placeholderTextColor="#999"
+            placeholderTextColor={colors.textLight}
             value={reason}
             onChangeText={setReason}
             multiline
@@ -68,7 +73,7 @@ export function ReportModal({targetId, onClose}: Props) {
             </Pressable>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

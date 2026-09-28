@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.4-alpine
+    platform: linux/amd64
     container_name: khadyabachao-postgres
     environment:
       POSTGRES_DB: khadyabachao

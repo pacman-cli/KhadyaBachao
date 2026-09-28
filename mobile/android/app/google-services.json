@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "229944207916",
+    "project_id": "khadyabachao",
+    "storage_bucket": "khadyabachao.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:229944207916:android:6c6ad2848b71e3f5847f89",
+        "android_client_info": {
+          "package_name": "com.khadyabachao"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "229944207916-0mn9rnn01n79dmc6c0oec1m10a76lgo4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.khadyabachao",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "229944207916-vh59e0jco1mh22ug4u3l9tj4bfk5c74t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBk8F0wx285hdFPMSAnRqV4aGcKTZPS_rQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "229944207916-0gr1p9isdhrtm5j8m17rnvo6pcriu3ls.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "229944207916-pehmgc1egq8bkfa0nor0bg2p53hjggcs.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "org.reactjs.native.example.KhadyaBachao"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -4,6 +4,7 @@ import com.khadyabachao.config.JwtAuthFilter.AuthenticatedUser;
 import com.khadyabachao.notification.NotificationService;
 import com.khadyabachao.user.User;
 import com.khadyabachao.user.UserRepository;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -57,14 +58,22 @@ public class VerificationController {
     }
 
     /** NGO/donor submits (or resubmits) their registration document. */
-    @PostMapping("/verification/submit")
+    @PostMapping({"/verification/submit", "/organization/verify-request"})
+    @Transactional
     public ResponseEntity<VerificationResponse> submit(
         @AuthenticationPrincipal AuthenticatedUser principal,
-        @RequestBody SubmitRequest request) {
+        @Valid @RequestBody SubmitRequest request) {
         User user = userRepository.findById(principal.id()).orElseThrow();
 
         Organization org = organizationRepository.findByUserId(user.getId())
             .orElseGet(() -> Organization.builder().user(user).build());
+
+        // Audit B46: unlimited resubmission while PENDING spams the admin review
+        // queue. Rejection (and approval) still allow a new submission.
+        if (org.getId() != null && org.getVerificationStatus() == VerificationStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "A verification request is already pending review");
+        }
 
         org.setOrgName(request.orgName());
         org.setOrgType(request.orgType());
@@ -86,7 +95,7 @@ public class VerificationController {
 
     // ---------- admin ----------
 
-    @GetMapping("/admin/verifications")
+    @GetMapping({"/admin/verifications", "/admin/organizations/pending"})
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(readOnly = true)
     public Page<VerificationResponse> pending(
@@ -97,7 +106,7 @@ public class VerificationController {
             .map(VerificationResponse::from);
     }
 
-    @PatchMapping("/admin/verifications/{id}/approve")
+    @PatchMapping(path = {"/admin/verifications/{id}/approve", "/admin/organizations/{id}/approve"})
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public VerificationResponse approve(@AuthenticationPrincipal AuthenticatedUser principal,
@@ -105,7 +114,7 @@ public class VerificationController {
         return decide(principal.id(), id, VerificationStatus.APPROVED);
     }
 
-    @PatchMapping("/admin/verifications/{id}/reject")
+    @PatchMapping(path = {"/admin/verifications/{id}/reject", "/admin/organizations/{id}/reject"})
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public VerificationResponse reject(@AuthenticationPrincipal AuthenticatedUser principal,

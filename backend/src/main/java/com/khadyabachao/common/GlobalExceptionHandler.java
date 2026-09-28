@@ -36,6 +36,38 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
     }
 
+    // Live E2E finding: a syntactically invalid body (bad JSON, wrong types)
+    // fell through to the catch-all handler and surfaced as a logged 500 with
+    // a stack trace. It is a client error and must map to 400.
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ProblemDetail handleUnreadable(org.springframework.http.converter.HttpMessageNotReadableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Malformed request body");
+    }
+
+    // Live full-mode finding: an invalid/expired Firebase ID token propagated
+    // to the catch-all handler and surfaced as a logged 500. It is an auth
+    // failure and must map to 401 so clients can prompt re-login.
+    @ExceptionHandler(com.khadyabachao.auth.InvalidTokenException.class)
+    public ProblemDetail handleInvalidToken(com.khadyabachao.auth.InvalidTokenException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED,
+            e.getMessage() != null ? e.getMessage() : "Invalid Firebase ID token");
+    }
+
+    // Spring MVC 3 reports unmapped paths as NoResourceFoundException; without
+    // this it falls through to the catch-all and unknown URLs return 500.
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ProblemDetail handleNoResource(org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Not found");
+    }
+
+    // Concurrent writers on the same listing (optimistic @Version check) — a
+    // retryable conflict, not a server fault.
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ProblemDetail handleOptimisticLock(org.springframework.dao.OptimisticLockingFailureException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+            "This record was just modified by someone else — please retry");
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception e) {
         log.error("Unhandled exception", e);

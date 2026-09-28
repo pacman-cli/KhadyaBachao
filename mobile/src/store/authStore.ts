@@ -3,6 +3,8 @@ import * as authApi from '../api/auth';
 import * as usersApi from '../api/users';
 import type {User, UserRole} from '../api/types';
 import {setToken} from '../api/tokenRef';
+import {deactivateSocket} from '../api/wsClient';
+import {signOutFirebase} from '../services/firebaseAuthService';
 import {
   clearCredentials,
   loadCredentials,
@@ -20,6 +22,7 @@ type AuthState = {
 
   bootstrap: () => Promise<void>;
   devLogin: (email: string, name: string) => Promise<boolean>;
+  firebaseLogin: (idToken: string) => Promise<boolean>;
   selectRole: (role: UserRole) => Promise<boolean>;
   saveProfile: (input: {name?: string; phone?: string}) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -63,7 +66,33 @@ export const useAuthStore = create<AuthState>(set => ({
         user: res.user,
         token: res.accessToken,
         loading: false,
-        awaitingRoleSelection: true,
+        // Audit M16: only first-time users are pushed through role selection;
+        // returning users go straight to the app.
+        awaitingRoleSelection: res.newUser === true,
+      });
+      return true;
+    } catch (e) {
+      set({error: describe(e), loading: false});
+      return false;
+    }
+  },
+
+  firebaseLogin: async idToken => {
+    set({loading: true, error: null});
+    try {
+      const res = await authApi.verifyToken(idToken);
+      setToken(res.accessToken);
+      await saveCredentials({
+        accessToken: res.accessToken,
+        userId: res.user.id,
+      });
+      set({
+        user: res.user,
+        token: res.accessToken,
+        loading: false,
+        // Audit M16: only first-time users are pushed through role selection;
+        // returning users go straight to the app.
+        awaitingRoleSelection: res.newUser === true,
       });
       return true;
     } catch (e) {
@@ -85,9 +114,14 @@ export const useAuthStore = create<AuthState>(set => ({
   },
 
   saveProfile: async input => {
+    const name = input.name?.trim();
+    if (name !== undefined && name.length === 0) {
+      set({error: 'Name cannot be empty', loading: false});
+      return false;
+    }
     set({loading: true, error: null});
     try {
-      const user = await usersApi.updateProfile(input);
+      const user = await usersApi.updateProfile({name, phone: input.phone});
       set({user, loading: false});
       return true;
     } catch (e) {
@@ -97,6 +131,11 @@ export const useAuthStore = create<AuthState>(set => ({
   },
 
   logout: async () => {
+    // Audit M12/M17: tear down the socket and the Firebase session too — a
+    // lingering WS connection or Firebase session belongs to the logged-out
+    // user just as much as the Keychain token does.
+    await deactivateSocket().catch(() => undefined);
+    await signOutFirebase().catch(() => undefined);
     await clearCredentials();
     setToken(null);
     set({user: null, token: null, error: null});

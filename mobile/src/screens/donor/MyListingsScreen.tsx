@@ -19,34 +19,42 @@ import {
 } from '../../api/listings';
 import {
   completePickup,
+  openReceiptPdf,
   requestsForListing,
   type FoodRequest,
 } from '../../api/requests';
-
-const STATUS_COLORS: Record<Listing['status'], string> = {
-  AVAILABLE: '#0b7a3e',
-  CLAIMED: '#1f6fb2',
-  EXPIRED: '#999999',
-  COMPLETED: '#6a4fb2',
-  CANCELLED: '#c0392b',
-};
+import {colors} from '../../theme/colors';
+import {spacing} from '../../theme/spacing';
+import {radius} from '../../theme/radius';
+import {AppHeader} from '../../components/AppHeader';
+import {AppButton} from '../../components/AppButton';
+import {Badge} from '../../components/Badge';
+import {RatingModal} from '../../components/RatingModal';
+import {EmptyState} from '../../components/EmptyState';
+import {formatDateTime} from '../../utils/datetime';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyListings'>;
 
 export function MyListingsScreen({navigation}: Props) {
   const [listings, setListings] = useState<Listing[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [claimsByListing, setClaimsByListing] = useState<Record<string, FoodRequest>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [ratingClaim, setRatingClaim] = useState<FoodRequest | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
       const data = await myListings();
       setListings(data);
-      // fetch claim details only for claimed listings
-      const claimed = data.filter(l => l.status === 'CLAIMED');
+      // Claims are needed for CLAIMED (approve/handover actions) *and*
+      // COMPLETED (rate pickup / download receipt) — fetching only CLAIMED
+      // made the rate + receipt buttons unreachable right after handover.
+      const withClaims = data.filter(
+        l => l.status === 'CLAIMED' || l.status === 'COMPLETED',
+      );
       const entries = await Promise.all(
-        claimed.map(async l => {
+        withClaims.map(async l => {
           try {
             const reqs = await requestsForListing(l.id);
             const accepted = reqs.find(r => r.status === 'ACCEPTED') ?? reqs[0];
@@ -57,8 +65,10 @@ export function MyListingsScreen({navigation}: Props) {
         }),
       );
       setClaimsByListing(Object.fromEntries(entries.filter(Boolean) as [string, FoodRequest][]));
-    } catch {
-      // keep old data on failure
+      setLoaded(true);
+    } catch (e: any) {
+      // Keep old data on failure, but tell the user — silence read as success.
+      Alert.alert('Error', e?.response?.data?.detail ?? 'Could not load your listings');
     } finally {
       setRefreshing(false);
     }
@@ -77,7 +87,15 @@ export function MyListingsScreen({navigation}: Props) {
         text: 'Yes, cancel it',
         style: 'destructive',
         onPress: async () => {
-          await cancelListing(listing.id);
+          try {
+            await cancelListing(listing.id);
+          } catch (e: any) {
+            Alert.alert(
+              'Error',
+              e?.response?.data?.detail ?? 'Could not cancel the listing',
+            );
+            return;
+          }
           load();
         },
       },
@@ -94,7 +112,15 @@ export function MyListingsScreen({navigation}: Props) {
         {
           text: 'Picked up ✓',
           onPress: async () => {
-            await completePickup(claim.id);
+            try {
+              await completePickup(claim.id);
+            } catch (e: any) {
+              Alert.alert(
+                'Error',
+                e?.response?.data?.detail ?? 'Could not complete the handover',
+              );
+              return;
+            }
             load();
           },
         },
@@ -104,84 +130,140 @@ export function MyListingsScreen({navigation}: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.heading}>My listings</Text>
+      <AppHeader
+        title="My Food Listings"
+        subtitle="Track and manage surplus food items you posted"
+        showBack
+        onBack={() => navigation.goBack()}
+        rightAction={
+          <AppButton
+            title="+ Post Food"
+            size="sm"
+            onPress={() => navigation.navigate('PostFood')}
+          />
+        }
+      />
+
       <FlatList
         data={listings}
         keyExtractor={item => item.id}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={load} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={load}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
         }
         contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            Nothing posted yet. Tap “Post Food” to rescue your first meal.
-          </Text>
-        }
+        // Only show the empty state once data actually loaded — during the
+        // first fetch it flashed "No Listings Posted Yet" misleadingly.
+        ListEmptyComponent={loaded ? (
+          <EmptyState
+            title="No Listings Posted Yet"
+            message="Share extra food before it goes to waste. Tap below to create your first food listing."
+            actionLabel="Post Surplus Food"
+            onAction={() => navigation.navigate('PostFood')}
+          />
+        ) : undefined}
         renderItem={({item}) => {
           const claim = claimsByListing[item.id];
           return (
             <View style={styles.card}>
               <View style={styles.rowBetween}>
-                <Text style={styles.title}>{item.title}</Text>
-                <View
-                  style={[
-                    styles.badge,
-                    {backgroundColor: STATUS_COLORS[item.status] + '22'},
-                  ]}>
-                  <Text
-                    style={[styles.badgeText, {color: STATUS_COLORS[item.status]}]}>
-                    {item.status}
-                  </Text>
-                </View>
+                <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
+                <Badge label={item.status} variant={item.status} />
               </View>
-              <Text style={styles.meta}>
-                {Number(item.quantityValue)} {item.quantityUnit} ·{' '}
-                {item.foodType.toLowerCase()}
-                {item.pickupAddress ? ` · ${item.pickupAddress}` : ''}
+
+              <View style={styles.metaRow}>
+                <Badge label={item.foodType} variant={item.foodType} size="sm" />
+                <Text style={styles.metaText}>
+                  {Number(item.quantityValue)} {item.quantityUnit}
+                </Text>
+              </View>
+
+              {item.pickupAddress ? (
+                <Text style={styles.locationText} numberOfLines={1}>
+                  📍 {item.pickupAddress}
+                </Text>
+              ) : null}
+
+              <Text style={styles.deadlineText}>
+                ⏰ Pickup Deadline: {formatDateTime(item.pickupDeadline)}
               </Text>
-              <Text style={styles.meta}>
-                Deadline: {new Date(item.pickupDeadline).toLocaleString()}
-              </Text>
+
+              {item.status === 'COMPLETED' && claim && (
+                <View style={styles.actionsRow}>
+                  {!claim.rated && (
+                    <AppButton
+                      title="★ Rate Pickup"
+                      variant="secondary"
+                      size="sm"
+                      style={{flex: 1}}
+                      onPress={() => setRatingClaim(claim)}
+                    />
+                  )}
+                  <AppButton
+                    title="📄 PDF Receipt"
+                    variant="outline"
+                    size="sm"
+                    style={{flex: 1}}
+                    onPress={() => openReceiptPdf(claim.id)}
+                  />
+                </View>
+              )}
 
               {item.status === 'CLAIMED' && (
                 <View style={styles.claimBox}>
-                  <Text style={styles.claimText}>
-                    Claimed by {claim?.recipientName ?? '…'}
+                  <Text style={styles.claimTitle}>
+                    Claimed by: <Text style={styles.claimerName}>{claim?.recipientName ?? 'Recipient'}</Text>
                     {claim?.recipientVerified ? ' ✓' : ''}
                   </Text>
                   <View style={styles.actionsRow}>
-                    <Pressable
-                      style={[styles.actionButton, styles.chatBtn]}
+                    <AppButton
+                      title="Chat"
+                      variant="primary"
+                      size="sm"
+                      style={{flex: 1}}
                       onPress={() =>
                         claim &&
                         navigation.navigate('Chat', {
                           requestId: claim.id,
                           title: item.title,
                         })
-                      }>
-                      <Text style={styles.chatBtnText}>Chat</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.actionButton, styles.completeBtn]}
+                      }
+                    />
+                    <AppButton
+                      title="Mark Handed Over"
+                      variant="secondary"
+                      size="sm"
                       disabled={!claim}
-                      onPress={() => confirmComplete(item, claim)}>
-                      <Text style={styles.completeBtnText}>Mark picked up</Text>
-                    </Pressable>
+                      style={{flex: 1.2}}
+                      onPress={() => confirmComplete(item, claim)}
+                    />
                   </View>
                 </View>
               )}
 
               {(item.status === 'AVAILABLE' || item.status === 'CLAIMED') && (
                 <Pressable
-                  style={styles.cancelButton}
+                  style={styles.cancelLink}
                   onPress={() => confirmCancel(item)}>
-                  <Text style={styles.cancelButtonText}>Cancel listing</Text>
+                  <Text style={styles.cancelLinkText}>Cancel Listing</Text>
                 </Pressable>
               )}
             </View>
           );
         }}
       />
+
+      {ratingClaim && (
+        <RatingModal
+          claim={ratingClaim}
+          onClose={() => setRatingClaim(null)}
+          onRated={load}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -189,109 +271,85 @@ export function MyListingsScreen({navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  heading: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
+    backgroundColor: colors.background,
   },
   list: {
-    padding: 20,
-    paddingTop: 4,
-    gap: 12,
-  },
-  empty: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 40,
-    fontSize: 14,
+    padding: spacing.xl,
+    gap: spacing.lg,
   },
   card: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 14,
-    padding: 16,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
   rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   title: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#1a1a1a',
-    flexShrink: 1,
+    color: colors.text,
+    flex: 1,
   },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    marginLeft: 8,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  meta: {
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     marginTop: 4,
+  },
+  metaText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  locationText: {
     fontSize: 13,
-    color: '#666',
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  deadlineText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   claimBox: {
-    marginTop: 10,
-    backgroundColor: '#eef6fb',
-    borderRadius: 10,
-    padding: 10,
+    marginTop: spacing.md,
+    backgroundColor: colors.secondaryLight,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
-  claimText: {
+  claimTitle: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#1f6fb2',
+    color: colors.secondary,
+    fontWeight: '600',
+  },
+  claimerName: {
+    color: '#1E40AF',
+    fontWeight: '800',
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
+    gap: spacing.sm,
+    marginTop: 2,
   },
-  actionButton: {
-    flex: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  chatBtn: {
-    backgroundColor: '#1f6fb2',
-  },
-  chatBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  completeBtn: {
-    backgroundColor: '#0b7a3e',
-  },
-  completeBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  cancelButton: {
+  cancelLink: {
     alignSelf: 'flex-start',
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#c0392b',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    marginTop: spacing.sm,
+    // Destructive actions need a generous tap target (was 4dp vertical).
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
-  cancelButtonText: {
-    color: '#c0392b',
+  cancelLinkText: {
+    color: colors.error,
     fontSize: 13,
     fontWeight: '600',
   },
