@@ -98,7 +98,13 @@ export function NotificationsScreen({navigation}: Props) {
         navigation.navigate('MyClaims');
       }
     } else if (item.type === 'CHAT' && data.requestId) {
-      navigation.navigate('Chat', {requestId: data.requestId, title: 'Chat'});
+      // Chat push bodies are formatted "ListingTitle: message" — show the
+      // listing title in the chat header instead of a generic "Chat".
+      const listingTitle = item.body.split(':')[0]?.trim() || 'Chat';
+      navigation.navigate('Chat', {
+        requestId: data.requestId,
+        title: listingTitle,
+      });
     } else if (item.type === 'VERIFICATION' || item.type === 'RATING') {
       navigation.navigate('Profile');
     }

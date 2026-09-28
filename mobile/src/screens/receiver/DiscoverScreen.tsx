@@ -28,6 +28,7 @@ import {
   useListingEvents,
 } from '../../hooks/useListingEvents';
 import type {ListingEvent} from '../../api/wsClient';
+import {useFilterStore} from '../../store/filterStore';
 import {formatDateTime, formatTime} from '../../utils/datetime';
 import {colors} from '../../theme/colors';
 import {spacing} from '../../theme/spacing';
@@ -103,8 +104,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Discover'>;
 
 export function DiscoverScreen({navigation}: Props) {
   const [coords, setCoords] = useState<Coords>(DHAKA_CENTER);
-  const [radiusKm, setRadiusKm] = useState(5);
-  const [foodType, setFoodType] = useState<FoodType | 'ALL'>('ALL');
+  // Filters live in the shared filterStore so they survive Discover unmounts
+  // (app restart, MyClaims → Find Food replace) instead of silently resetting.
+  const radiusKm = useFilterStore(state => state.radiusKm);
+  const setRadiusKm = useFilterStore(state => state.setRadiusKm);
+  const foodType = useFilterStore(state => state.foodType);
+  const setFoodType = useFilterStore(state => state.setFoodType);
   const [listings, setListings] = useState<Listing[]>([]);
   const [mode, setMode] = useState<'map' | 'list'>('map');
   const [loading, setLoading] = useState(true);

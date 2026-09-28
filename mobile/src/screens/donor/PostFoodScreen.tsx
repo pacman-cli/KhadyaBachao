@@ -1,4 +1,4 @@
-import React, {useState, useRef} from 'react';
+import React, {useEffect, useState, useRef} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,26 @@ export function PostFoodScreen({navigation}: Props) {
   const [showMap, setShowMap] = useState(false);
   const mapRef = useRef<MapView>(null);
 
+  // A half-filled listing (typed title, quantity, or uploaded photos that may
+  // already be in R2) must not vanish on an accidental back swipe. Skipped
+  // after a successful publish (navigation.replace also fires beforeRemove).
+  const publishedRef = useRef(false);
+  const hasDraft =
+    title.trim().length > 0 || Number(quantity) > 0 || photoUrls.length > 0;
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', e => {
+      if (!hasDraft || publishedRef.current) {
+        return;
+      }
+      e.preventDefault();
+      Alert.alert('Discard listing?', 'Your draft — including any uploaded photos — will be lost.', [
+        {text: 'Keep editing', style: 'cancel'},
+        {text: 'Discard', style: 'destructive', onPress: () => navigation.dispatch(e.data.action)},
+      ]);
+    });
+    return unsubscribe;
+  }, [navigation, hasDraft]);
+
   async function useCurrentLocation() {
     setLocating(true);
     try {
@@ -64,6 +84,12 @@ export function PostFoodScreen({navigation}: Props) {
       if (c) {
         setCoords(c);
         setShowMap(true);
+        // initialRegion is only read on mount — without this animation the
+        // camera stays wherever the user panned and a refresh looks broken.
+        mapRef.current?.animateToRegion(
+          {latitude: c.lat, longitude: c.lng, latitudeDelta: 0.01, longitudeDelta: 0.01},
+          400,
+        );
       }
     } finally {
       setLocating(false);
@@ -135,6 +161,7 @@ export function PostFoodScreen({navigation}: Props) {
         pickupLng: coords.lng,
         photoUrls,
       });
+      publishedRef.current = true;
       navigation.replace('MyListings');
     } catch (e) {
       const detail =
@@ -213,7 +240,9 @@ export function PostFoodScreen({navigation}: Props) {
                 <AppTextInput
                   placeholder="e.g. 50"
                   value={quantity}
-                  onChangeText={setQuantity}
+                  // decimal-pad keyboards emit "," on comma-locale devices;
+                  // Number("2,5") is NaN which silently disabled Publish.
+                  onChangeText={t => setQuantity(t.replace(',', '.'))}
                   keyboardType="decimal-pad"
                   containerStyle={styles.noMarginBottom}
                 />

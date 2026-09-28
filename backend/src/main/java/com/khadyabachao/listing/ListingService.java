@@ -139,8 +139,10 @@ public class ListingService {
         boolean incExpired = Boolean.TRUE.equals(includeExpired);
         // Clamp client-controlled paging — an unbounded radius query used to
         // hydrate the entire result set (DoS vector on the hottest endpoint).
+        // Default 100: the mobile Discover feed has no pagination, so a small
+        // default would silently hide listings the user previously saw.
         int safePage = page != null ? Math.max(0, page) : 0;
-        int safeSize = size != null ? Math.min(Math.max(1, size), 100) : 50;
+        int safeSize = size != null ? Math.min(Math.max(1, size), 100) : 100;
         Pageable pageable = PageRequest.of(safePage, safeSize);
 
         return listingRepository

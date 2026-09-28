@@ -130,6 +130,18 @@ export function HomeScreen({navigation}: Props) {
                 <Text style={styles.gridDesc}>See nearby food rescue activity</Text>
               </Pressable>
             </>
+          ) : isAdmin ? (
+            <>
+              {/* Admins cannot claim (backend 403) — expose read-only map
+                  browsing for moderation context only. */}
+              <Pressable
+                style={({pressed}) => [styles.gridCard, pressed && styles.pressed]}
+                onPress={() => navigation.navigate('Discover')}>
+                <Text style={styles.gridIcon}>🗺️</Text>
+                <Text style={styles.gridTitle}>Browse Map</Text>
+                <Text style={styles.gridDesc}>Inspect listings across the city</Text>
+              </Pressable>
+            </>
           ) : (
             <>
               <Pressable

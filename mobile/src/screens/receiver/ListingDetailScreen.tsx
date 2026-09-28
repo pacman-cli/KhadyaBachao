@@ -31,11 +31,15 @@ import {Badge} from '../../components/Badge';
 import {LoadingState} from '../../components/LoadingState';
 import {ErrorState} from '../../components/ErrorState';
 import {formatDateTime} from '../../utils/datetime';
+import {useAuthStore} from '../../store/authStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
+const CAN_CLAIM_ROLES = ['RECIPIENT_NGO', 'RECIPIENT_INDIVIDUAL', 'VOLUNTEER'];
+
 export function ListingDetailScreen({route, navigation}: Props) {
   const {listingId} = route.params;
+  const user = useAuthStore(state => state.user);
   const [listing, setListing] = useState<Listing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
@@ -88,8 +92,9 @@ export function ListingDetailScreen({route, navigation}: Props) {
 
   async function claim() {
     setClaiming(true);
-    // Optimistic UI update: mark status as CLAIMED locally while API call processes
-    setListing(prev => (prev ? {...prev, status: 'CLAIMED'} : null));
+    // No premature optimistic CLAIMED here: flipping status mid-flight
+    // unmounts the button (losing its spinner) and shows a false "no longer
+    // available" while the request is still pending.
     try {
       await claimListing(listingId);
       Alert.alert(
@@ -99,12 +104,14 @@ export function ListingDetailScreen({route, navigation}: Props) {
       setListing(await getListing(listingId));
     } catch (e) {
       const err = e as {response?: {status?: number; data?: {detail?: string}}};
+      // The backend returns specific 409 details ("pickup window has passed",
+      // "already claimed", "someone beat you to it") — prefer them over a
+      // generic message that would blame the wrong cause.
+      const detail =
+        err.response?.data?.detail ?? 'Could not claim this listing';
       const isConflict = err.response?.status === 409;
-      const detail = isConflict
-        ? 'This item was just claimed by someone else.'
-        : (err.response?.data?.detail ?? 'Could not claim this listing');
 
-      Alert.alert(isConflict ? 'Already Claimed ⚠️' : 'Cannot Claim', detail);
+      Alert.alert(isConflict ? 'Cannot Claim ⚠️' : 'Cannot Claim', detail);
       try {
         setListing(await getListing(listingId));
       } catch {
@@ -191,16 +198,30 @@ export function ListingDetailScreen({route, navigation}: Props) {
           </View>
         </View>
 
-        {/* Claim Action */}
+        {/* Claim Action — the backend only allows recipients/volunteers to
+            claim, and never the listing's own donor. Gate the CTA so donors
+            and admins don't walk into a guaranteed 403 dead-end. */}
         {listing.status === 'AVAILABLE' ? (
-          <AppButton
-            title="Claim This Surplus Food"
-            variant="primary"
-            size="lg"
-            loading={claiming}
-            onPress={claim}
-            style={styles.claimButton}
-          />
+          user &&
+          CAN_CLAIM_ROLES.includes(user.role) &&
+          user.id !== listing.donorId ? (
+            <AppButton
+              title="Claim This Surplus Food"
+              variant="primary"
+              size="lg"
+              loading={claiming}
+              onPress={claim}
+              style={styles.claimButton}
+            />
+          ) : (
+            <View style={styles.unavailableBox}>
+              <Text style={styles.unavailableText}>
+                {user?.id === listing.donorId
+                  ? 'This is your own listing.'
+                  : 'Sign in as a recipient, NGO or volunteer to claim food.'}
+              </Text>
+            </View>
+          )
         ) : (
           <View style={styles.unavailableBox}>
             <Text style={styles.unavailableText}>

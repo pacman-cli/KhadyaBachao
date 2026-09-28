@@ -47,9 +47,18 @@ export const useAuthStore = create<AuthState>(set => ({
       setToken(stored.accessToken);
       const me = await usersApi.getMe();
       set({user: me, token: stored.accessToken, initializing: false});
-    } catch {
-      await clearCredentials();
-      set({user: null, token: null, initializing: false});
+    } catch (e: any) {
+      // Only a server REJECTION (401/403) means the token is dead. Offline
+      // launches / backend restarts / timeouts must keep the stored session —
+      // wiping it permanently logged users out over a transient network blip.
+      const status = e?.response?.status;
+      if (status === 401 || status === 403) {
+        await clearCredentials();
+        setToken(null);
+        set({user: null, token: null, initializing: false});
+      } else {
+        set({initializing: false});
+      }
     }
   },
 

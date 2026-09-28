@@ -65,8 +65,15 @@ async function refreshAccessToken(): Promise<string | null> {
       return newToken;
     }
     return null;
-  } catch {
-    return null;
+  } catch (e) {
+    // Only a server REJECTION (401/403) means the session is truly dead.
+    // Offline/timeouts/5xx must keep the stored session — the user retries
+    // when connectivity returns instead of being force-logged-out.
+    const status = (e as AxiosError).response?.status;
+    if (status === 401 || status === 403) {
+      return null;
+    }
+    throw e;
   }
 }
 
@@ -85,11 +92,18 @@ api.interceptors.response.use(
     ) {
       config._retry = true;
 
-      // Single-flight: concurrent 401s share one refresh attempt.
+      // Single-flight: concurrent 401s share one refresh attempt. A network
+      // failure during refresh rethrows the original error WITHOUT clearing
+      // the session (transient ≠ dead token).
       refreshPromise = refreshPromise ?? refreshAccessToken();
-      const newToken = await refreshPromise.finally(() => {
-        refreshPromise = null;
-      });
+      let newToken: string | null = null;
+      try {
+        newToken = await refreshPromise.finally(() => {
+          refreshPromise = null;
+        });
+      } catch {
+        throw error;
+      }
 
       if (newToken) {
         config.headers.Authorization = `Bearer ${newToken}`;

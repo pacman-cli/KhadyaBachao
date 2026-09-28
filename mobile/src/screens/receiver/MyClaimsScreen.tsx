@@ -143,13 +143,26 @@ export function MyClaimsScreen({navigation}: Props) {
                   variant="outline"
                   size="sm"
                   style={{flex: 1}}
-                  onPress={() => openReceiptPdf(item.id)}
+                  onPress={async () => {
+                    try {
+                      await openReceiptPdf(item.id);
+                    } catch (e: any) {
+                      Alert.alert(
+                        'Error',
+                        e?.message ?? 'Could not open the receipt',
+                      );
+                    }
+                  }}
                 />
               </View>
             )}
 
             {(item.status === 'ACCEPTED' || item.status === 'PENDING') &&
-              item.listingStatus !== 'COMPLETED' && (
+              item.listingStatus !== 'COMPLETED' &&
+              // Dead actions: if the donor cancelled/expired the listing, chat
+              // and release target food that no longer exists.
+              item.listingStatus !== 'CANCELLED' &&
+              item.listingStatus !== 'EXPIRED' && (
                 <View style={styles.actionsRow}>
                   <AppButton
                     title="💬 Chat & Pickup Schedule"

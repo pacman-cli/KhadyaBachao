@@ -104,11 +104,14 @@ public class ChatService {
     @Transactional
     public ScheduleResponse propose(UUID requestId, UUID userId, ProposeScheduleRequest input) {
         FoodRequest request = accessGuard.getForParticipant(requestId, userId);
-        // Scheduling only makes sense while a claim is active — a cancelled
-        // request or cancelled/completed listing must not accept new terms.
-        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED) {
+        // Scheduling only makes sense while a claim is active. complete()
+        // leaves the request ACCEPTED forever, so the request status alone
+        // cannot catch post-completion scheduling — the listing status is
+        // the real gate.
+        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED
+                || request.getListing().getStatus() != com.khadyabachao.listing.ListingStatus.CLAIMED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Pickup can only be scheduled for an accepted claim");
+                "Pickup can only be scheduled for an accepted, uncompleted claim");
         }
         if (input.agreedTime() == null || !input.agreedTime().isAfter(Instant.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pickup time must be in the future");
@@ -145,9 +148,10 @@ public class ChatService {
     @Transactional
     public ScheduleResponse confirm(UUID requestId, UUID userId) {
         FoodRequest request = accessGuard.getForParticipant(requestId, userId);
-        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED) {
+        if (request.getStatus() != com.khadyabachao.request.RequestStatus.ACCEPTED
+                || request.getListing().getStatus() != com.khadyabachao.listing.ListingStatus.CLAIMED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "Pickup can only be scheduled for an accepted claim");
+                "Pickup can only be confirmed for an accepted, uncompleted claim");
         }
         PickupSchedule schedule = scheduleRepository.findByRequestId(requestId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No schedule proposed yet"));

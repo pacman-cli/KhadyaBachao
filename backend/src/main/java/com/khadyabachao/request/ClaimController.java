@@ -85,12 +85,9 @@ public class ClaimController {
         return ResponseEntity.ok().headers(headers).body(pdfBytes);
     }
 
-    @PostMapping({"/claims/{id}/approve", "/requests/{id}/approve"})
-    @PreAuthorize("hasRole('DONOR')")
-    public ResponseEntity<RequestResponse> approve(@AuthenticationPrincipal AuthenticatedUser principal,
-            @PathVariable UUID id) {
-        return ResponseEntity.ok(claimService.approveClaim(principal.id(), id));
-    }
+    // NOTE: there is no approve endpoint by design — claims auto-ACCEPT on
+    // claim time (first-claim-wins), so a permanent-409 approve surface would
+    // be misleading. Donors refuse claims via /reject below.
 
     @PostMapping({"/claims/{id}/reject", "/requests/{id}/reject"})
     @PreAuthorize("hasRole('DONOR')")
