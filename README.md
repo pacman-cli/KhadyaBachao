@@ -168,6 +168,7 @@ Point release builds at your production API in `mobile/.env.production`
 
 ## Documentation
 
+- [CLONE_AND_RUN_GUIDE.md](./CLONE_AND_RUN_GUIDE.md) — step-by-step developer onboarding & local setup guide
 - [PROJECT_AUDIT.md](./PROJECT_AUDIT.md) — feature-by-feature audit matrix, defect log, mock-functionality disposition
 - [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) — every endpoint: auth, roles, payloads, errors
 - [TEST_PLAN.md](./TEST_PLAN.md) — automated suites, live E2E verification, manual device matrix
