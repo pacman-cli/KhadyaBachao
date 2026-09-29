@@ -10,6 +10,15 @@ import {
   loadCredentials,
   saveCredentials,
 } from '../utils/secureStorage';
+import {
+  registerDeviceToken,
+  unregisterDeviceToken,
+} from '../utils/notifications';
+
+/** Fire-and-forget FCM registration once a session exists. */
+function syncPushRegistration(): void {
+  registerDeviceToken().catch(() => undefined);
+}
 
 type AuthState = {
   user: User | null;
@@ -47,6 +56,7 @@ export const useAuthStore = create<AuthState>(set => ({
       setToken(stored.accessToken);
       const me = await usersApi.getMe();
       set({user: me, token: stored.accessToken, initializing: false});
+      syncPushRegistration();
     } catch (e: any) {
       // Only a server REJECTION (401/403) means the token is dead. Offline
       // launches / backend restarts / timeouts must keep the stored session —
@@ -79,6 +89,7 @@ export const useAuthStore = create<AuthState>(set => ({
         // returning users go straight to the app.
         awaitingRoleSelection: res.newUser === true,
       });
+      syncPushRegistration();
       return true;
     } catch (e) {
       set({error: describe(e), loading: false});
@@ -103,6 +114,7 @@ export const useAuthStore = create<AuthState>(set => ({
         // returning users go straight to the app.
         awaitingRoleSelection: res.newUser === true,
       });
+      syncPushRegistration();
       return true;
     } catch (e) {
       set({error: describe(e), loading: false});
@@ -142,8 +154,11 @@ export const useAuthStore = create<AuthState>(set => ({
   logout: async () => {
     // Audit M12/M17: tear down the socket and the Firebase session too — a
     // lingering WS connection or Firebase session belongs to the logged-out
-    // user just as much as the Keychain token does.
+    // user just as much as the Keychain token does. Deleting the FCM token
+    // rotates it on next login so this device stops receiving the previous
+    // user's pushes.
     await deactivateSocket().catch(() => undefined);
+    await unregisterDeviceToken().catch(() => undefined);
     await signOutFirebase().catch(() => undefined);
     await clearCredentials();
     setToken(null);

@@ -29,6 +29,7 @@ import {
 } from '../../hooks/useListingEvents';
 import type {ListingEvent} from '../../api/wsClient';
 import {useFilterStore} from '../../store/filterStore';
+import {canNavigate} from '../../utils/navThrottle';
 import {formatDateTime, formatTime} from '../../utils/datetime';
 import {colors} from '../../theme/colors';
 import {spacing} from '../../theme/spacing';
@@ -202,6 +203,11 @@ export function DiscoverScreen({navigation}: Props) {
   }
 
   const openDetail = useCallback((listing: Listing) => {
+    // The preview card AND its inner button both call this — a throttle stops
+    // a double-tap from stacking two ListingDetail screens.
+    if (!canNavigate()) {
+      return;
+    }
     navigation.navigate('ListingDetail', {listingId: listing.id});
   }, [navigation]);
 

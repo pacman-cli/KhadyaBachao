@@ -1,6 +1,7 @@
-import React from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -36,20 +37,56 @@ const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
 type Props = NativeStackScreenProps<RootStackParamList, 'RoleSelect'>;
 
 export function RoleSelectScreen({navigation}: Props) {
-  const {selectRole, loading, error} = useAuthStore();
+  const {selectRole, loading, error, awaitingRoleSelection, user} =
+    useAuthStore();
+  const [submittingRole, setSubmittingRole] = useState<UserRole | null>(null);
+  const submitLock = useRef(false);
+
+  // First-login onboarding: hardware back must not silently skip role
+  // selection — bootstrap never re-asks, so the user would land on a
+  // recipient home they never chose. (Opened via Profile → Change Role, back
+  // is a legitimate cancel and stays enabled.)
+  useEffect(() => {
+    if (!awaitingRoleSelection) {
+      return;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, [awaitingRoleSelection]);
 
   async function choose(role: UserRole) {
+    // Same-frame double taps bypass the `loading` render gate; lock in a ref.
+    if (submitLock.current) {
+      return;
+    }
+    submitLock.current = true;
+    setSubmittingRole(role);
     const ok = await selectRole(role);
+    submitLock.current = false;
+    setSubmittingRole(null);
     if (ok) {
-      navigation.replace('Home');
+      if (awaitingRoleSelection) {
+        // Initial onboarding: there is nothing beneath this screen to pop to.
+        navigation.replace('Home');
+      } else {
+        // Change-Role flow: [Home, Profile, RoleSelect] — goBack returns to
+        // Profile, which re-renders with the updated role (no [Home, Home]).
+        navigation.goBack();
+      }
     }
   }
+
+  const busy = loading || submittingRole !== null;
 
   return (
     <SafeAreaView style={styles.container}>
       <AppHeader
         title="Select Your Role"
-        subtitle="Customizes your experience in Khadya Bachao"
+        subtitle={
+          awaitingRoleSelection
+            ? 'Customizes your experience in Khadya Bachao'
+            : `Current: ${user ? ROLE_LABELS[user.role] : 'Guest'} — pick a new role`
+        }
       />
 
       <ScrollView
@@ -58,9 +95,16 @@ export function RoleSelectScreen({navigation}: Props) {
         {SELECTABLE_ROLES.map(role => (
           <Pressable
             key={role}
-            style={({pressed}) => [styles.card, pressed && styles.pressed]}
-            disabled={loading}
-            onPress={() => choose(role)}>
+            style={({pressed}) => [
+              styles.card,
+              pressed && styles.pressed,
+              submittingRole === role && styles.pressed,
+            ]}
+            disabled={busy}
+            onPress={() => choose(role)}
+            accessibilityRole="button"
+            accessibilityLabel={`Select ${ROLE_LABELS[role]} role`}
+            accessibilityState={{selected: user?.role === role}}>
             <View style={styles.iconBox}>
               <Text style={styles.roleIcon}>{ROLE_ICONS[role]}</Text>
             </View>
@@ -68,11 +112,14 @@ export function RoleSelectScreen({navigation}: Props) {
               <Text style={styles.cardTitle}>{ROLE_LABELS[role]}</Text>
               <Text style={styles.cardDesc}>{ROLE_DESCRIPTIONS[role]}</Text>
             </View>
+            {user?.role === role ? (
+              <Text style={styles.currentTag}>✓</Text>
+            ) : null}
           </Pressable>
         ))}
       </ScrollView>
 
-      {loading ? (
+      {busy ? (
         <View style={styles.loadingFooter}>
           <ActivityIndicator color={colors.primary} />
           <Text style={styles.loadingText}>Updating role...</Text>
@@ -131,6 +178,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     lineHeight: 18,
+  },
+  currentTag: {
+    color: colors.success,
+    fontSize: 16,
+    fontWeight: '700',
   },
   loadingFooter: {
     flexDirection: 'row',

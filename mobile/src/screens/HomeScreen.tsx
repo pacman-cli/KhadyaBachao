@@ -35,6 +35,13 @@ export function HomeScreen({navigation}: Props) {
           </View>
         </View>
         <Pressable
+          style={({pressed}) => [styles.bellButton, pressed && styles.pressed]}
+          onPress={() => navigation.navigate('Notifications')}
+          accessibilityLabel="Open Notifications"
+          accessibilityRole="button">
+          <Text style={styles.bellText}>🔔</Text>
+        </Pressable>
+        <Pressable
           style={({pressed}) => [styles.profileAvatar, pressed && styles.pressed]}
           onPress={() => navigation.navigate('Profile')}
           accessibilityLabel="Open Profile"
@@ -233,6 +240,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primaryDark,
     textTransform: 'uppercase',
+  },
+  bellButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  bellText: {
+    fontSize: 17,
   },
   profileAvatar: {
     width: 40,

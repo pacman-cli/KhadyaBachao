@@ -1,8 +1,9 @@
 import React, {useEffect} from 'react';
 import {StatusBar} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
-import {RootNavigator} from './src/navigation/RootNavigator';
+import {RootNavigator, navigationRef} from './src/navigation/RootNavigator';
 import {setOnAuthFailure} from './src/api/client';
+import {setNotificationOpenHandler} from './src/utils/notifications';
 import {useAuthStore} from './src/store/authStore';
 
 function App() {
@@ -16,6 +17,37 @@ function App() {
       useAuthStore.setState({user: null, token: null});
     });
     return () => setOnAuthFailure(null);
+  }, []);
+
+  // Notification taps deep-link by the backend's data payload:
+  // {type: CLAIM|CHAT|COMPLETED|SCHEDULE|VERIFICATION|RATING, requestId?, listingId?}
+  useEffect(() => {
+    setNotificationOpenHandler(data => {
+      if (!navigationRef.isReady()) {
+        return;
+      }
+      switch (data.type) {
+        case 'CLAIM':
+        case 'COMPLETED':
+          navigationRef.navigate('MyClaims');
+          break;
+        case 'CHAT':
+        case 'SCHEDULE':
+          if (data.requestId) {
+            navigationRef.navigate('Chat', {requestId: data.requestId});
+          } else {
+            navigationRef.navigate('MyClaims');
+          }
+          break;
+        case 'VERIFICATION':
+        case 'RATING':
+          navigationRef.navigate('Profile');
+          break;
+        default:
+          break;
+      }
+    });
+    return () => setNotificationOpenHandler(null);
   }, []);
 
   return (

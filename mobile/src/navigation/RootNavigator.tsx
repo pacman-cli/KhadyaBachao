@@ -1,6 +1,9 @@
 import React, {useEffect} from 'react';
 import {ActivityIndicator, StyleSheet, View} from 'react-native';
-import {NavigationContainer} from '@react-navigation/native';
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {LoginScreen} from '../screens/auth/LoginScreen';
 import {RoleSelectScreen} from '../screens/auth/RoleSelectScreen';
@@ -16,6 +19,12 @@ import {DashboardScreen} from '../screens/DashboardScreen';
 import {AdminScreen} from '../screens/admin/AdminScreen';
 import {NotificationsScreen} from '../screens/notifications/NotificationsScreen';
 import {useAuthStore} from '../store/authStore';
+
+/**
+ * Ref used by notification tap handlers (utils/notifications.ts) to deep-link
+ * into the screen matching the pushed event's data payload.
+ */
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export type RootStackParamList = {
   Login: undefined;
@@ -90,7 +99,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       {/* Every screen renders its own branded header inside a SafeAreaView;
           the default native header would duplicate it and leave a dead gap
           between the two bars. */}

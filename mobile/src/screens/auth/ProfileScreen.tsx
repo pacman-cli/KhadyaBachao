@@ -143,7 +143,10 @@ export function ProfileScreen({navigation}: Props) {
             title="Change Role"
             variant="outline"
             size="sm"
-            onPress={() => navigation.replace('RoleSelect')}
+            // navigate (not replace): RoleSelect pops back here after the
+            // role changes — replace left a [Home, RoleSelect] stack whose
+            // submit then built a duplicate [Home, Home].
+            onPress={() => navigation.navigate('RoleSelect')}
           />
         </View>
 
