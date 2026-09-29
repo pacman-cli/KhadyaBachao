@@ -21,9 +21,11 @@ function App() {
 
   // Notification taps deep-link by the backend's data payload:
   // {type: CLAIM|CHAT|COMPLETED|SCHEDULE|VERIFICATION|RATING, requestId?, listingId?}
+  // Ignored while logged out — the device token stays registered server-side
+  // after logout, and MyClaims/Chat are unregistered screens there.
   useEffect(() => {
     setNotificationOpenHandler(data => {
-      if (!navigationRef.isReady()) {
+      if (!useAuthStore.getState().user || !navigationRef.isReady()) {
         return;
       }
       switch (data.type) {

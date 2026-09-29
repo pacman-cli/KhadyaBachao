@@ -1,6 +1,7 @@
 import {Alert, Platform} from 'react-native';
 import Config from 'react-native-config';
 import {api} from '../api/client';
+import {getToken} from '../api/tokenRef';
 
 const FIREBASE_ENABLED = Config.FIREBASE_ENABLED === 'true';
 export const NOTIFICATION_CHANNEL_ID = 'khadya_alerts';
@@ -64,6 +65,12 @@ if (FIREBASE_ENABLED) {
  */
 export async function registerDeviceToken(): Promise<void> {
   if (!FIREBASE_ENABLED) {
+    return;
+  }
+  // A session must exist: deleteToken() during logout fires onTokenRefresh,
+  // which would otherwise immediately re-register a fresh token via an
+  // unauthenticated POST (401 → needless re-logout churn).
+  if (!getToken()) {
     return;
   }
   const messaging = require('@react-native-firebase/messaging').default;
