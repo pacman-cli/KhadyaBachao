@@ -106,7 +106,12 @@ export function LoginScreen() {
       Alert.alert('Phone required', 'Enter phone number with country code (e.g. +8801700000000)');
       return;
     }
-    const formattedPhone = rawPhone.startsWith('+') ? rawPhone : `+880${rawPhone.replace(/^0+/, '')}`;
+    // Normalize BD numbers without corrupting already-prefixed input:
+    // "01700000000" -> +8801700000000, but "8801700000000" must not become
+    // "+880880..." (paste-from-contacts corrupted the number before this fix).
+    const digits = rawPhone.startsWith('+') ? rawPhone.slice(1) : rawPhone;
+    const stripped = digits.replace(/^00/, '').replace(/^0+/, '');
+    const formattedPhone = rawPhone.startsWith('+') ? rawPhone : `+880${stripped}`;
     setLoading(true);
     setErrorMsg('');
     try {
@@ -240,6 +245,7 @@ export function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
               />
 
               <AppTextInput
@@ -248,6 +254,7 @@ export function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
+                autoComplete={isSignUp ? 'new-password' : 'password'}
               />
 
               <AppButton
@@ -301,7 +308,20 @@ export function LoginScreen() {
                     value={otpCode}
                     onChangeText={setOtpCode}
                     keyboardType="number-pad"
+                    autoComplete="sms-otp"
+                    textContentType="oneTimeCode"
                   />
+                  {/* Without this the user was stuck in code entry after a
+                      typo'd number or an SMS that never arrived. */}
+                  <Pressable
+                    onPress={() => {
+                      setConfirmResult(null);
+                      setOtpCode('');
+                    }}>
+                    <Text style={styles.changeNumberText}>
+                      Wrong number? Change number & resend
+                    </Text>
+                  </Pressable>
                   <AppButton
                     title="Verify & Continue"
                     variant="primary"
@@ -352,6 +372,13 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  changeNumberText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import MapView, {Marker} from 'react-native-maps';
-import {getCurrentCoords} from '../../utils/location';
+import {DHAKA_CENTER, getCurrentCoords} from '../../utils/location';
 import {useDateTimePicker} from '../../hooks/useDateTimePicker';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../navigation/RootNavigator';
@@ -81,16 +81,23 @@ export function PostFoodScreen({navigation}: Props) {
     setLocating(true);
     try {
       const c = await getCurrentCoords();
-      if (c) {
-        setCoords(c);
-        setShowMap(true);
-        // initialRegion is only read on mount — without this animation the
-        // camera stays wherever the user panned and a refresh looks broken.
-        mapRef.current?.animateToRegion(
-          {latitude: c.lat, longitude: c.lng, latitudeDelta: 0.01, longitudeDelta: 0.01},
-          400,
-        );
-      }
+      // Fallback to Dhaka center when GPS/permission fails — previously the
+      // alert promised a fallback that never happened, leaving Publish
+      // disabled forever (core donor flow dead-end).
+      const target = c ?? DHAKA_CENTER;
+      setCoords(target);
+      setShowMap(true);
+      // initialRegion is only read on mount — without this animation the
+      // camera stays wherever the user panned and a refresh looks broken.
+      mapRef.current?.animateToRegion(
+        {
+          latitude: target.lat,
+          longitude: target.lng,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        400,
+      );
     } finally {
       setLocating(false);
     }
@@ -197,6 +204,7 @@ export function PostFoodScreen({navigation}: Props) {
               placeholder="e.g. 50 plates of fresh Biryani & salad"
               value={title}
               onChangeText={setTitle}
+              maxLength={255}
               required
             />
 
@@ -207,6 +215,7 @@ export function PostFoodScreen({navigation}: Props) {
               onChangeText={setDescription}
               multiline
               numberOfLines={3}
+              maxLength={5000}
               style={styles.multiline}
             />
 

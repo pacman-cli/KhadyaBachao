@@ -55,7 +55,13 @@ export function AppButton({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'outline' || variant === 'ghost' ? colors.primary : '#FFFFFF'}
+          // 'secondary' has a light background — a white spinner was invisible
+          // (blank button during PostFood re-locate / document upload).
+          color={
+            variant === 'outline' || variant === 'ghost' || variant === 'secondary'
+              ? colors.primary
+              : '#FFFFFF'
+          }
         />
       ) : (
         <>

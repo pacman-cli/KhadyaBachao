@@ -207,7 +207,17 @@ export function ProfileScreen({navigation}: Props) {
         {!user.verified && (
           <View style={styles.verifySection}>
             <Text style={styles.sectionTitle}>Account Verification</Text>
-            {verification && verification.verificationStatus === 'PENDING' ? (
+            {verification && verification.verificationStatus === 'APPROVED' ? (
+              <View style={[styles.verifyBox, styles.verifyPending]}>
+                <Text style={[styles.verifyTitle, {color: colors.success}]}>
+                  ✅ Approved
+                </Text>
+                <Text style={styles.verifyMeta}>
+                  "{verification.orgName}" was approved. Pull to refresh or
+                  reopen the app to see your verified badge.
+                </Text>
+              </View>
+            ) : verification && verification.verificationStatus === 'PENDING' ? (
               <View style={[styles.verifyBox, styles.verifyPending]}>
                 <Text style={styles.verifyTitle}>⏳ Under Review</Text>
                 <Text style={styles.verifyMeta}>

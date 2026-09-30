@@ -2,6 +2,8 @@ package com.khadyabachao.notification;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingException;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
 import com.khadyabachao.user.UserRepository;
@@ -81,8 +83,18 @@ public class FcmNotificationService implements NotificationService {
                     .setNotification(Notification.builder().setTitle(title).setBody(body).build())
                     .putAllData(data)
                     .build());
+            } catch (FirebaseMessagingException e) {
+                // Tokens are push credentials — mask them in logs. UNREGISTERED
+                // means the app was uninstalled: prune so the dead token stops
+                // consuming a send attempt on every notification.
+                log.warn("Failed to push to token {}...: {}",
+                    token.substring(0, Math.min(8, token.length())), e.getMessage());
+                if (e.getMessagingErrorCode() == MessagingErrorCode.UNREGISTERED) {
+                    deviceTokenRepository.findByToken(token)
+                        .ifPresent(deviceTokenRepository::delete);
+                }
             } catch (Exception e) {
-                log.warn("Failed to push to token {}: {}", token, e.getMessage());
+                log.warn("Failed to push to a device token: {}", e.getMessage());
             }
         }
     }

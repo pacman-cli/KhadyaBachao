@@ -48,9 +48,13 @@ public interface FoodRequestRepository extends JpaRepository<FoodRequest, UUID> 
 
     long countByRecipientId(UUID recipientId);
 
+    // Both status conditions matter: a REJECTED/CANCELLED claim on a listing
+    // that a LATER recipient completed must not count as this recipient's
+    // pickup (live stats-audit finding — quantityRescued already requires it).
     @Query("""
         SELECT COUNT(r) FROM FoodRequest r
         WHERE r.recipient.id = :recipientId AND r.listing.status = 'COMPLETED'
+          AND r.status = 'ACCEPTED'
         """)
     long countCompletedByRecipient(UUID recipientId);
 

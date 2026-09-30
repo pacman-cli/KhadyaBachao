@@ -20,12 +20,18 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Dev-only login: issues a backend JWT without Firebase so the full auth
- * pipeline can be exercised locally. Excluded when running in prod profile.
+ * pipeline can be exercised locally.
+ *
+ * Guarding is fail-closed: the backdoor exists ONLY under an explicit
+ * `dev` profile (previous `!prod` gating left profile-less prod deploys
+ * with a live account-takeover endpoint whenever FIREBASE_ENABLED was
+ * unset — startup-audit finding). Run local dev with
+ * SPRING_PROFILES_ACTIVE=dev.
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/auth/dev")
-@Profile("!prod")
+@Profile({"dev", "test"})
 @ConditionalOnProperty(name = "app.firebase.enabled", havingValue = "false", matchIfMissing = true)
 @RequiredArgsConstructor
 public class DevAuthController {
@@ -35,7 +41,7 @@ public class DevAuthController {
 
     @PostConstruct
     void init() {
-        log.warn("SECURITY WARNING: DevAuthController is ACTIVE. POST /api/auth/dev/login is enabled for testing. Excluded when spring.profiles.active=prod.");
+        log.warn("SECURITY WARNING: DevAuthController is ACTIVE under the dev profile. POST /api/auth/dev/login is enabled for testing.");
     }
 
     public record DevLoginRequest(

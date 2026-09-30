@@ -28,8 +28,11 @@ public class ReceiptService {
     private final FoodRequestRepository requestRepository;
     private final PickupScheduleRepository scheduleRepository;
 
+    // Receipts are printed by Bangladeshi users — render in Asia/Dhaka rather
+    // than the container's system TZ (typically UTC in deployment), which put
+    // handover times 6 hours off from what the app displayed.
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
-            .withZone(ZoneId.systemDefault());
+            .withZone(ZoneId.of("Asia/Dhaka"));
 
     @Transactional(readOnly = true)
     public byte[] generateReceiptPdf(UUID requestId, UUID userId) {

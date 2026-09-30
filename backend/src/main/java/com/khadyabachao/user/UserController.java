@@ -65,11 +65,11 @@ public class UserController {
     /** Role selection on first login. ADMIN can never be self-assigned (audit B15/B17). */
     @PutMapping("/me/role")
     public ResponseEntity<UserResponse> updateRole(@AuthenticationPrincipal AuthenticatedUser principal,
-                                                   @RequestBody UpdateRoleRequest request) {
+                                                   @jakarta.validation.Valid @RequestBody UpdateRoleRequest request) {
         UserRole role;
         try {
             role = UserRole.valueOf(request.role());
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | NullPointerException e) {
             throw new IllegalArgumentException("Unknown role: " + request.role());
         }
         if (!SELF_SELECTABLE_ROLES.contains(role)) {

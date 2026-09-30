@@ -4,6 +4,7 @@ import * as usersApi from '../api/users';
 import type {User, UserRole} from '../api/types';
 import {setToken} from '../api/tokenRef';
 import {deactivateSocket} from '../api/wsClient';
+import {useFilterStore} from './filterStore';
 import {signOutFirebase} from '../services/firebaseAuthService';
 import {
   clearCredentials,
@@ -12,11 +13,13 @@ import {
 } from '../utils/secureStorage';
 import {
   registerDeviceToken,
+  resumeNotificationRegistration,
   unregisterDeviceToken,
 } from '../utils/notifications';
 
 /** Fire-and-forget FCM registration once a session exists. */
 function syncPushRegistration(): void {
+  resumeNotificationRegistration(); // clears logout's suppression flag
   registerDeviceToken().catch(() => undefined);
 }
 
@@ -156,12 +159,17 @@ export const useAuthStore = create<AuthState>(set => ({
     // lingering WS connection or Firebase session belongs to the logged-out
     // user just as much as the Keychain token does. Deleting the FCM token
     // rotates it on next login so this device stops receiving the previous
-    // user's pushes.
+    // user's pushes. setToken(null) comes FIRST: deleteToken() fires FCM's
+    // onTokenRefresh, and with the session ref cleared the re-register is a
+    // no-op instead of a 401 churn under the dying session.
     await deactivateSocket().catch(() => undefined);
+    setToken(null);
     await unregisterDeviceToken().catch(() => undefined);
     await signOutFirebase().catch(() => undefined);
     await clearCredentials();
-    setToken(null);
+    // Also clear per-user UI state: Discover filters would otherwise leak
+    // to the next account on a shared device.
+    useFilterStore.getState().resetFilters();
     set({user: null, token: null, error: null});
   },
 }));

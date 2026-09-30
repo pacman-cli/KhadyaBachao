@@ -80,7 +80,8 @@ public class ClaimController {
         byte[] pdfBytes = receiptService.generateReceiptPdf(id, principal.id());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
-        headers.setContentDispositionFormData("attachment", "receipt-" + id + ".pdf");
+        headers.setContentDisposition(
+            org.springframework.http.ContentDisposition.attachment().filename("receipt-" + id + ".pdf").build());
         headers.setContentLength(pdfBytes.length);
         return ResponseEntity.ok().headers(headers).body(pdfBytes);
     }

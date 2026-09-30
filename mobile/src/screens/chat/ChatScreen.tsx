@@ -29,8 +29,9 @@ import {spacing} from '../../theme/spacing';
 import {radius} from '../../theme/radius';
 import {AppHeader} from '../../components/AppHeader';
 import {AppButton} from '../../components/AppButton';
-import {formatDateTime} from '../../utils/datetime';
+import {formatDateTime, formatTime} from '../../utils/datetime';
 import {useDateTimePicker} from '../../hooks/useDateTimePicker';
+import {setActiveChatRequestId} from '../../utils/notifications';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -68,6 +69,22 @@ export function ChatScreen({route, navigation}: Props) {
     loadHistory();
     getSchedule(requestId).then(setSchedule).catch(() => {});
   }, [loadHistory, requestId]);
+
+  // Suppress foreground push Alerts for the conversation the user is already
+  // reading (the WS bubble renders it live).
+  useEffect(() => {
+    setActiveChatRequestId(requestId);
+    return () => setActiveChatRequestId(null);
+  }, [requestId]);
+
+  // The backend publishes schedule changes via FCM (not a WS topic) — refresh
+  // the panel when a chat message arrives, which typically accompanies a
+  // The backend publishes schedule changes via FCM (not a WS topic) — refresh
+  // the panel when a chat message arrives, which typically accompanies a
+  // schedule proposal/confirmation.
+  useEffect(() => {
+    getSchedule(requestId).then(setSchedule).catch(() => undefined);
+  }, [messages.length, requestId]);
 
   useEffect(() => {
     return subscribeWhenConnected(`/topic/chat/${requestId}`, body => {
@@ -211,10 +228,7 @@ export function ChatScreen({route, navigation}: Props) {
                   styles.time,
                   item.senderId === userId && styles.myTime,
                 ]}>
-                {new Date(item.sentAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+                {formatTime(item.sentAt)}
               </Text>
             </View>
           )}

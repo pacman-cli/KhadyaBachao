@@ -7,11 +7,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Local-dev fallback used only when Firebase is not configured
- * (app.firebase.enabled != true). Tokens are plain "dev:<uid>:<email>" strings.
- * NEVER active in production — FirebaseTokenVerifier replaces this bean.
+ * (app.firebase.enabled != true) under an explicit `dev` profile.
+ * Tokens are plain "dev:<uid>:<email>" strings.
+ * Fail-closed: without the dev profile this bean does not exist, so a
+ * profile-less prod deploy can never accept forged dev tokens.
  */
 @Component
-@Profile("!prod")
+@Profile({"dev", "test"})
 @ConditionalOnMissingBean(FirebaseTokenVerifier.class)
 @ConditionalOnProperty(name = "app.firebase.enabled", havingValue = "false", matchIfMissing = true)
 public class DevTokenVerifier implements TokenVerifier {
