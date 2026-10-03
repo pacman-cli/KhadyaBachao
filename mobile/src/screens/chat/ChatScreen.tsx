@@ -31,7 +31,10 @@ import {AppHeader} from '../../components/AppHeader';
 import {AppButton} from '../../components/AppButton';
 import {formatDateTime, formatTime} from '../../utils/datetime';
 import {useDateTimePicker} from '../../hooks/useDateTimePicker';
-import {setActiveChatRequestId} from '../../utils/notifications';
+import {
+  setActiveChatRequestId,
+  setSchedulePushListener,
+} from '../../utils/notifications';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -71,10 +74,20 @@ export function ChatScreen({route, navigation}: Props) {
   }, [loadHistory, requestId]);
 
   // Suppress foreground push Alerts for the conversation the user is already
-  // reading (the WS bubble renders it live).
+  // reading (the WS bubble renders it live). SCHEDULE pushes for this request
+  // instead refresh the panel below — the backend pushes schedule changes via
+  // FCM only, so without this the counterpart's confirmation stays invisible.
   useEffect(() => {
     setActiveChatRequestId(requestId);
-    return () => setActiveChatRequestId(null);
+    setSchedulePushListener(reqId => {
+      if (reqId === requestId) {
+        getSchedule(requestId).then(setSchedule).catch(() => undefined);
+      }
+    });
+    return () => {
+      setActiveChatRequestId(null);
+      setSchedulePushListener(null);
+    };
   }, [requestId]);
 
   // The backend publishes schedule changes via FCM (not a WS topic) — refresh

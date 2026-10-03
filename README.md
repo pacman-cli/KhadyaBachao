@@ -97,11 +97,20 @@ set -a; source .env.local; set +a   # Firebase + R2 + DB port
 - Health: http://localhost:8080/api/health
 - Swagger: http://localhost:8080/swagger-ui.html
 
-Without a Firebase service account the API runs in **dev mode**:
-`POST /api/auth/dev/login {"email","name"[,"role"]}` issues a JWT so every
+Without a Firebase service account the API runs in **dev mode** — but the
+dev-login backdoor is fail-closed: it exists ONLY under the explicit `dev`
+profile (or `test` in the integration suite). Run the backend with:
+
+```bash
+SPRING_PROFILES_ACTIVE=dev DB_PORT=5433 ./mvnw spring-boot:run
+```
+
+Then `POST /api/auth/dev/login {"email","name"[,"role"]}` issues a JWT so every
 flow is testable end-to-end. Set `FIREBASE_ENABLED=true` +
 `FIREBASE_CREDENTIALS_PATH=service-account.json` for production token
-verification (the dev endpoints disappear automatically).
+verification (the dev endpoints disappear automatically). Running with no
+profile and Firebase unset intentionally fails closed — the dev backdoor
+will not exist.
 
 Migrations: Flyway applies `src/main/resources/db/migration/V*__*.sql` on boot.
 

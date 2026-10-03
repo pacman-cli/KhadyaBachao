@@ -377,7 +377,12 @@ export function DiscoverScreen({navigation}: Props) {
                 title="No Food Nearby"
                 message={`We couldn't find any surplus food within ${radiusKm} km. Try increasing the search radius.`}
                 actionLabel="Expand Radius to 25 km"
-                onAction={() => setRadiusKm(25)}
+                // Reload explicitly: if the radius is already 25 the store
+                // update is a no-op and the button would do nothing.
+                onAction={() => {
+                  setRadiusKm(25);
+                  load();
+                }}
               />
             )
           }

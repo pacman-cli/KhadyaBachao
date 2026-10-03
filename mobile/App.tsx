@@ -14,11 +14,16 @@ function routeNotificationData(data: Record<string, string>): void {
   if (!navigationRef.isReady()) {
     return;
   }
-  switch (data.type) {
-    case 'CLAIM':
-    case 'COMPLETED':
-      navigationRef.navigate('MyClaims');
-      break;
+      switch (data.type) {
+        case 'CLAIM':
+          // CLAIM pushes go to the DONOR ("your food was claimed") — open
+          // their listings, not the recipient-scoped MyClaims feed.
+          navigationRef.navigate('MyListings');
+          break;
+        case 'COMPLETED':
+        case 'CLAIM_REJECTED':
+          navigationRef.navigate('MyClaims');
+          break;
     case 'CHAT':
     case 'SCHEDULE':
       if (data.requestId) {

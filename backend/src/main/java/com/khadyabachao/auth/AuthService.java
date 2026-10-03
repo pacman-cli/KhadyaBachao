@@ -4,12 +4,11 @@ import com.khadyabachao.config.JwtService;
 import com.khadyabachao.user.User;
 import com.khadyabachao.user.UserRepository;
 import com.khadyabachao.user.UserResponse;
-import com.khadyabachao.user.UserRole;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.TransactionSystemException;
 
 @Service
 @Slf4j
@@ -19,8 +18,11 @@ public class AuthService {
     private final TokenVerifier tokenVerifier;
     private final UserRepository userRepository;
     private final JwtService jwtService;
+    private final UserProvisioningService userProvisioningService;
 
-    @Transactional
+    // Deliberately NOT @Transactional: the Firebase ID-token verification is a
+    // remote call that must not hold a pooled DB connection, and provisioning
+    // commits in its own REQUIRES_NEW transaction (UserProvisioningService).
     public AuthResponse verifyAndLogin(String idToken) {
         TokenVerifier.VerifiedIdentity identity = tokenVerifier.verify(idToken);
 
@@ -31,37 +33,27 @@ public class AuthService {
         return new AuthResponse(accessToken, UserResponse.from(user), provisioned.created());
     }
 
-    private record Provisioned(User user, boolean created) {
-    }
-
     /**
      * First-login provisioning is check-then-insert on a UNIQUE(firebase_uid)
-     * column — a double-tapped sign-in fires two concurrent verify-token calls
-     * and the loser hits the constraint. Previously that surfaced as a 500 at
-     * the exact moment the user expected to be signed in; now the loser
-     * re-selects and continues with the winner's row.
+     * column. A double-tapped sign-in fires two concurrent verify-token calls;
+     * the loser's INSERT hits the constraint at the REQUIRES_NEW commit (User
+     * id is UUID-generated, so the insert flushes at that transaction's end).
+     * Catching it HERE lets the loser continue with the winner's row instead
+     * of surfacing a 500 at first sign-in.
      */
-    private Provisioned provisionUser(TokenVerifier.VerifiedIdentity identity) {
+    private UserProvisioningService.Provisioned provisionUser(TokenVerifier.VerifiedIdentity identity) {
         try {
-            return findOrProvision(identity, true);
-        } catch (DataIntegrityViolationException e) {
+            return userProvisioningService.findOrProvision(
+                identity.uid(),
+                identity.name() != null ? identity.name() : "Unnamed user",
+                identity.email(),
+                identity.phone());
+        } catch (DataIntegrityViolationException | TransactionSystemException e) {
             log.info("Concurrent first-login provisioning for uid {}; continuing with the winner", identity.uid());
-            return userRepository.findByFirebaseUid(identity.uid())
-                .map(u -> new Provisioned(u, false))
+            User winner = userRepository.findByFirebaseUid(identity.uid())
                 .orElseThrow(() -> e);
+            return new UserProvisioningService.Provisioned(winner, false);
         }
-    }
-
-    private Provisioned findOrProvision(TokenVerifier.VerifiedIdentity identity, boolean created) {
-        return userRepository.findByFirebaseUid(identity.uid())
-            .map(u -> new Provisioned(u, false))
-            .orElseGet(() -> new Provisioned(userRepository.save(User.builder()
-                .firebaseUid(identity.uid())
-                .name(identity.name() != null ? identity.name() : "Unnamed user")
-                .email(identity.email())
-                .phone(identity.phone())
-                .role(UserRole.RECIPIENT_INDIVIDUAL)
-                .build()), true));
     }
 
     /**

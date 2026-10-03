@@ -70,7 +70,12 @@ export const useAuthStore = create<AuthState>(set => ({
         setToken(null);
         set({user: null, token: null, initializing: false});
       } else {
-        set({initializing: false});
+        // Transient failure (offline / backend restarting): the Keychain
+        // credentials are KEPT for the next successful bootstrap, but the
+        // in-memory token ref must be cleared — it would otherwise defeat
+        // the logged-out push-alert gates while the user sits on Login.
+        setToken(null);
+        set({user: null, token: null, initializing: false});
       }
     }
   },

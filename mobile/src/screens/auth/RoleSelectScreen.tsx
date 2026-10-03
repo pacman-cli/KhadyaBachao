@@ -64,15 +64,22 @@ export function RoleSelectScreen({navigation}: Props) {
     const ok = await selectRole(role);
     submitLock.current = false;
     setSubmittingRole(null);
-    if (ok) {
-      if (awaitingRoleSelection) {
-        // Initial onboarding: there is nothing beneath this screen to pop to.
-        navigation.replace('Home');
-      } else {
-        // Change-Role flow: [Home, Profile, RoleSelect] — goBack returns to
-        // Profile, which re-renders with the updated role (no [Home, Home]).
-        navigation.goBack();
-      }
+    if (!ok) {
+      return;
+    }
+    // The user may have pressed hardware back while the request was in flight
+    // (Change-Role flow pops to Profile) — navigating from a popped screen
+    // would yank them out of wherever they are now.
+    if (!navigation.isFocused()) {
+      return;
+    }
+    if (awaitingRoleSelection) {
+      // Initial onboarding: there is nothing beneath this screen to pop to.
+      navigation.replace('Home');
+    } else {
+      // Change-Role flow: [Home, Profile, RoleSelect] — goBack returns to
+      // Profile, which re-renders with the updated role (no [Home, Home]).
+      navigation.goBack();
     }
   }
 

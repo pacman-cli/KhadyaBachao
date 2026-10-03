@@ -24,9 +24,11 @@ public class StatsAggregationJob {
     @Transactional
     public void rebuildDailyStats() {
         jdbc.update("DELETE FROM stats_daily");
-        // Bucket in UTC explicitly: `::date` alone uses the Postgres session
-        // timezone, which shifts day boundaries for rows completed near
-        // midnight whenever the server TZ isn't UTC (stats-audit finding).
+        // Bucket with plain ::date: completed_at/created_at are TIMESTAMP
+        // WITHOUT time zone columns storing Hibernate-UTC wall times, so
+        // ::date is session-TZ-independent and already true-UTC bucketing.
+        // (An earlier AT TIME ZONE 'UTC' attempt converted to timestamptz and
+        // re-applied the session TZ — the drift it claimed to remove.)
         jdbc.update(
                 """
                         INSERT INTO stats_daily (date, total_completed_pickups, total_kg_rescued, total_listings)
@@ -35,12 +37,12 @@ public class StatsAggregationJob {
                                COALESCE(SUM(f.quantity_value), 0),
                                0
                         FROM generate_series(
-                            COALESCE((SELECT MIN(completed_at AT TIME ZONE 'UTC')::date FROM food_listings WHERE status = 'COMPLETED'), CURRENT_DATE AT TIME ZONE 'UTC'),
-                            CURRENT_DATE AT TIME ZONE 'UTC',
+                            COALESCE((SELECT MIN(completed_at)::date FROM food_listings WHERE status = 'COMPLETED'), CURRENT_DATE),
+                            CURRENT_DATE,
                             interval '1 day'
                         ) AS d
                         LEFT JOIN food_listings f
-                          ON (f.completed_at AT TIME ZONE 'UTC')::date = d::date AND f.status = 'COMPLETED'
+                          ON f.completed_at::date = d::date AND f.status = 'COMPLETED'
                         GROUP BY d
                         ORDER BY d
                         """);
@@ -49,8 +51,8 @@ public class StatsAggregationJob {
                 UPDATE stats_daily s
                 SET total_listings = c.cnt
                 FROM (
-                    SELECT (created_at AT TIME ZONE 'UTC')::date AS d, COUNT(*) AS cnt
-                    FROM food_listings GROUP BY (created_at AT TIME ZONE 'UTC')::date
+                    SELECT created_at::date AS d, COUNT(*) AS cnt
+                    FROM food_listings GROUP BY created_at::date
                 ) c
                 WHERE s.date = c.d
                 """);
