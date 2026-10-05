@@ -1,6 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,16 +24,26 @@ import {uploadImage} from '../../api/listings';
 import {colors} from '../../theme/colors';
 import {spacing} from '../../theme/spacing';
 import {radius} from '../../theme/radius';
+import {formatMonthYear} from '../../utils/datetime';
 import {AppHeader} from '../../components/AppHeader';
 import {AppButton} from '../../components/AppButton';
 import {AppTextInput} from '../../components/AppTextInput';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
 
+const ROLE_ICONS: Record<string, string> = {
+  DONOR: '🏢',
+  RECIPIENT_NGO: '🏛️',
+  RECIPIENT_INDIVIDUAL: '🙋',
+  VOLUNTEER: '🤝',
+  ADMIN: '🛡️',
+};
+
 export function ProfileScreen({navigation}: Props) {
   const {user, saveProfile, logout, loading, error} = useAuthStore();
   const [name, setName] = useState(user?.name ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   // verification state
   const [verification, setVerification] = useState<Verification | null>(null);
@@ -41,6 +54,8 @@ export function ProfileScreen({navigation}: Props) {
   const [docUrl, setDocUrl] = useState<string | null>(null);
   const [submittingDoc, setSubmittingDoc] = useState(false);
 
+  const isAdmin = user?.role === 'ADMIN';
+
   useEffect(() => {
     if (user && !user.verified) {
       myVerification().then(setVerification).catch(() => {});
@@ -49,6 +64,32 @@ export function ProfileScreen({navigation}: Props) {
 
   if (!user) {
     return null;
+  }
+
+  function pickAvatar() {
+    launchImageLibrary(
+      {mediaType: 'photo', quality: 0.7, maxWidth: 1024, maxHeight: 1024},
+      async res => {
+        const asset = res.assets?.[0];
+        if (!asset?.uri) {
+          return;
+        }
+        setPhotoUploading(true);
+        try {
+          const url = await uploadImage(asset.uri, asset.type ?? undefined);
+          const ok = await saveProfile({profilePhotoUrl: url});
+          if (ok) {
+            Alert.alert('Photo updated', 'Your profile photo has been saved.');
+          } else {
+            Alert.alert('Error', 'Upload succeeded but saving failed. Try again.');
+          }
+        } catch {
+          Alert.alert('Error', 'Could not upload the photo');
+        } finally {
+          setPhotoUploading(false);
+        }
+      },
+    );
   }
 
   function pickDocument() {
@@ -106,49 +147,98 @@ export function ProfileScreen({navigation}: Props) {
         onBack={() => navigation.goBack()}
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}>
         {/* User Identity Card */}
         <View style={styles.userCard}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>
-              {user.name ? user.name.charAt(0).toUpperCase() : '👤'}
-            </Text>
-          </View>
+          <Pressable
+            onPress={pickAvatar}
+            disabled={photoUploading}
+            accessibilityRole="imagebutton"
+            accessibilityLabel="Change profile photo">
+            <View style={styles.avatarRing}>
+              {user.profilePhotoUrl ? (
+                <Image
+                  source={{uri: user.profilePhotoUrl}}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarText}>
+                    {user.name ? user.name.charAt(0).toUpperCase() : '👤'}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.avatarBadge}>
+                {photoUploading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.avatarBadgeIcon}>📷</Text>
+                )}
+              </View>
+            </View>
+          </Pressable>
           <View style={styles.userMeta}>
             <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.userEmail}>{user.email}</Text>
-            <View
-              style={[
-                styles.badge,
-                user.verified ? styles.badgeVerified : styles.badgePending,
-              ]}>
-              <Text
+            {user.email ? (
+              <Text style={styles.userEmail}>{user.email}</Text>
+            ) : null}
+            <View style={styles.pillRow}>
+              <View style={[styles.pill, styles.rolePill]}>
+                <Text style={styles.rolePillText}>
+                  {ROLE_ICONS[user.role]} {ROLE_LABELS[user.role]}
+                </Text>
+              </View>
+              <View
                 style={[
-                  styles.badgeText,
-                  user.verified ? styles.badgeTextVerified : styles.badgeTextPending,
+                  styles.pill,
+                  user.verified ? styles.pillVerified : styles.pillUnverified,
                 ]}>
-                {user.verified ? '✓ Verified Account' : 'Unverified Account'}
-              </Text>
+                <Text
+                  style={[
+                    styles.pillText,
+                    user.verified
+                      ? styles.pillTextVerified
+                      : styles.pillTextUnverified,
+                  ]}>
+                  {user.verified ? '✓ Verified' : 'Unverified'}
+                </Text>
+              </View>
             </View>
+            <Text style={styles.memberSince}>
+              Member since {formatMonthYear(user.createdAt)}
+            </Text>
           </View>
         </View>
 
-        {/* Role Preference Row */}
-        <View style={styles.roleCard}>
-          <View style={styles.roleTextGroup}>
-            <Text style={styles.roleLabel}>Current Role</Text>
-            <Text style={styles.roleValue}>{ROLE_LABELS[user.role]}</Text>
+        {/* Role card — maintainers are locked (server rejects demotion too) */}
+        {isAdmin ? (
+          <View style={styles.adminCard}>
+            <Text style={styles.adminCardTitle}>
+              🛡️ Maintainer Account
+            </Text>
+            <Text style={styles.adminCardDesc}>
+              You administer the platform. Admin accounts cannot switch roles.
+            </Text>
           </View>
-          <AppButton
-            title="Change Role"
-            variant="outline"
-            size="sm"
-            // navigate (not replace): RoleSelect pops back here after the
-            // role changes — replace left a [Home, RoleSelect] stack whose
-            // submit then built a duplicate [Home, Home].
-            onPress={() => navigation.navigate('RoleSelect')}
-          />
-        </View>
+        ) : (
+          <View style={styles.roleCard}>
+            <View style={styles.roleTextGroup}>
+              <Text style={styles.roleLabel}>Current Role</Text>
+              <Text style={styles.roleValue}>{ROLE_LABELS[user.role]}</Text>
+            </View>
+            <AppButton
+              title="Change Role"
+              variant="outline"
+              size="sm"
+              // navigate (not replace): RoleSelect pops back here after the
+              // role changes — replace left a [Home, RoleSelect] stack whose
+              // submit then built a duplicate [Home, Home].
+              onPress={() => navigation.navigate('RoleSelect')}
+            />
+          </View>
+        )}
 
         {/* Two-Directional Rating Averages Card */}
         <Text style={styles.sectionTitle}>Rating Overview</Text>
@@ -157,7 +247,7 @@ export function ProfileScreen({navigation}: Props) {
             <Text style={styles.ratingStatVal}>
               ⭐ {Number(user.ratingAvg ?? 0).toFixed(1)}
             </Text>
-            <Text style={styles.ratingStatLabel}>Overall Rating</Text>
+            <Text style={styles.ratingStatLabel}>Overall</Text>
           </View>
           <View style={styles.ratingStatDivider} />
           <View style={styles.ratingStatItem}>
@@ -324,22 +414,50 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.lg,
   },
+  avatarRing: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 3,
+    borderColor: colors.primaryLight,
+  },
   avatarCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  avatarImage: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+  },
+  avatarBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    borderWidth: 2,
+    borderColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarBadgeIcon: {
+    fontSize: 12,
+  },
   avatarText: {
-    fontSize: 24,
+    fontSize: 30,
     fontWeight: '800',
     color: colors.primaryDark,
   },
   userMeta: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   userName: {
     fontSize: 18,
@@ -350,28 +468,63 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
   },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 2,
+  },
+  pill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
     borderRadius: radius.pill,
     alignSelf: 'flex-start',
-    marginTop: 4,
   },
-  badgeVerified: {
+  rolePill: {
+    backgroundColor: colors.primaryLight,
+  },
+  rolePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  pillVerified: {
     backgroundColor: colors.successLight,
   },
-  badgePending: {
+  pillUnverified: {
     backgroundColor: colors.warningLight,
   },
-  badgeText: {
+  pillText: {
     fontSize: 11,
     fontWeight: '700',
   },
-  badgeTextVerified: {
+  pillTextVerified: {
     color: colors.success,
   },
-  badgeTextPending: {
+  pillTextUnverified: {
     color: colors.warning,
+  },
+  memberSince: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  adminCard: {
+    backgroundColor: colors.secondaryLight,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: 4,
+  },
+  adminCardTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.secondary,
+  },
+  adminCardDesc: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   roleCard: {
     flexDirection: 'row',

@@ -36,7 +36,11 @@ type AuthState = {
   devLogin: (email: string, name: string) => Promise<boolean>;
   firebaseLogin: (idToken: string) => Promise<boolean>;
   selectRole: (role: UserRole) => Promise<boolean>;
-  saveProfile: (input: {name?: string; phone?: string}) => Promise<boolean>;
+  saveProfile: (input: {
+    name?: string;
+    phone?: string;
+    profilePhotoUrl?: string;
+  }) => Promise<boolean>;
   logout: () => Promise<void>;
 };
 
@@ -150,7 +154,11 @@ export const useAuthStore = create<AuthState>(set => ({
     }
     set({loading: true, error: null});
     try {
-      const user = await usersApi.updateProfile({name, phone: input.phone});
+      const user = await usersApi.updateProfile({
+        name,
+        phone: input.phone,
+        profilePhotoUrl: input.profilePhotoUrl,
+      });
       set({user, loading: false});
       return true;
     } catch (e) {

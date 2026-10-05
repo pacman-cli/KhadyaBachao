@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Audit B15: PUT /api/users/me/role must never accept ADMIN (or unknown
@@ -65,6 +66,22 @@ class UserControllerTest {
             principal, new UserController.UpdateRoleRequest("SUPERUSER")))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Unknown role");
+    }
+
+    @Test
+    void updateRole_blocksAdminFromDemotingThemselves() {
+        // Maintainers must not be able to silently destroy their own ADMIN
+        // access by "changing role" — this actually demoted the live admin
+        // account before the guard existed.
+        AuthenticatedUser adminPrincipal =
+            new AuthenticatedUser(userId, "Admin", UserRole.ADMIN);
+        User admin = User.builder().id(userId).name("Admin").role(UserRole.ADMIN).build();
+        when(userRepository.findById(userId)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> userController.updateRole(
+            adminPrincipal, new UserController.UpdateRoleRequest("DONOR")))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Maintainer accounts cannot switch roles");
     }
 
     @Test

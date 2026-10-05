@@ -5,9 +5,11 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -76,6 +78,12 @@ public class UserController {
             throw new IllegalArgumentException("Role cannot be self-assigned");
         }
         User user = userRepository.findById(principal.id()).orElseThrow();
+        if (user.getRole() == UserRole.ADMIN) {
+            // Maintainer accounts are managed out-of-band (DB/console); letting
+            // them "change role" here would silently destroy their admin access.
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Maintainer accounts cannot switch roles");
+        }
         user.setRole(role);
         return ResponseEntity.ok(UserResponse.from(userRepository.save(user)));
     }

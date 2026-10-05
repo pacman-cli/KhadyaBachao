@@ -45,3 +45,12 @@ export function formatDateTime(input: DateInput): string {
   }
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${formatTime(d)}`;
 }
+
+/** e.g. "Sep 2026" — used for "Member since" labels. */
+export function formatMonthYear(input: DateInput): string {
+  const d = asDate(input);
+  if (!d) {
+    return '—';
+  }
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}

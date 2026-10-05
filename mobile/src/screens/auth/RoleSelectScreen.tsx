@@ -55,8 +55,9 @@ export function RoleSelectScreen({navigation}: Props) {
   }, [awaitingRoleSelection]);
 
   async function choose(role: UserRole) {
-    // Same-frame double taps bypass the `loading` render gate; lock in a ref.
-    if (submitLock.current) {
+    // Maintainer accounts are server-enforced too — the API returns 403 for
+    // admins; this keeps the UI from even attempting it.
+    if (submitLock.current || user?.role === 'ADMIN') {
       return;
     }
     submitLock.current = true;
@@ -99,6 +100,14 @@ export function RoleSelectScreen({navigation}: Props) {
       <ScrollView
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}>
+        {user?.role === 'ADMIN' ? (
+          <View style={styles.adminLockBox}>
+            <Text style={styles.adminLockTitle}>🛡️ Maintainer Account</Text>
+            <Text style={styles.adminLockDesc}>
+              You administer the platform. Admin accounts cannot switch roles.
+            </Text>
+          </View>
+        ) : null}
         {SELECTABLE_ROLES.map(role => (
           <Pressable
             key={role}
@@ -106,8 +115,9 @@ export function RoleSelectScreen({navigation}: Props) {
               styles.card,
               pressed && styles.pressed,
               submittingRole === role && styles.pressed,
+              user?.role === 'ADMIN' && styles.cardLocked,
             ]}
-            disabled={busy}
+            disabled={busy || user?.role === 'ADMIN'}
             onPress={() => choose(role)}
             accessibilityRole="button"
             accessibilityLabel={`Select ${ROLE_LABELS[role]} role`}
@@ -190,6 +200,27 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontSize: 16,
     fontWeight: '700',
+  },
+  adminLockBox: {
+    backgroundColor: colors.secondaryLight,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: 4,
+  },
+  adminLockTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.secondary,
+  },
+  adminLockDesc: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  cardLocked: {
+    opacity: 0.55,
   },
   loadingFooter: {
     flexDirection: 'row',
