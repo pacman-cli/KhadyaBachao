@@ -20,7 +20,7 @@
     <properties>
         <java.version>17</java.version>
         <jjwt.version>0.13.0</jjwt.version>
-        <aws.sdk.version>2.55.5</aws.sdk.version>
+        <aws.sdk.version>2.55.10</aws.sdk.version>
     </properties>
 
     <dependencyManagement>
